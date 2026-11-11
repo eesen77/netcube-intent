@@ -1,5 +1,6 @@
 const state = {
   mode: 'live',
+  module: 'routing',
   configs: { a: '', b: '' },
   outputDevice: 'a',
   outputPanel: 'delta',
@@ -11,7 +12,9 @@ const examples = [
   "İki cihazdaki VLAN 40'ı aynı Layer 2 ağ olarak uzat. Adı BILGI_ISLEM olsun. VNI ve gerekli loopback adreslerini sen belirle. Mevcut yapıyı bozmadan VXLAN EVPN kullan.",
   "Merkezdeki 10.10.0.0/16 ağı ile şubedeki 10.40.0.0/16 ağı dinamik routing ile haberleşsin. Merkez AS 65001, şube AS 65002. En uygun protokolü seç.",
   "10.50.0.0/16 ağına 192.168.1.1 üzerinden erişim sağla. Mevcut routing yapısına en az müdahale eden çözümü hazırla.",
-  "İki lokasyon aynı kurum içinde. 10.20.0.0/16 ve 10.30.0.0/16 ağlarını duyur. Area ve router ID değerlerini mevcut config'e göre sen belirle."
+  "İki lokasyon aynı kurum içinde. 10.20.0.0/16 ve 10.30.0.0/16 ağlarını duyur. Area ve router ID değerlerini mevcut config'e göre sen belirle.",
+  "Kullanıcı portlarında 802.1X olsun, başarısız olursa MAB denensin. ClearPass kullan, telefon ve bilgisayar aynı portta çalışsın. 8 saatte reauth ve RADIUS CoA olsun.",
+  "İki leaf cihazı yedekli olarak spine katmanına bağla. Boş uplink portlarını seç, 100G DAC kabloları ve etiketleriyle saha iş emri hazırla; ardından VXLAN EVPN config'ini üret."
 ];
 let exampleIndex = 0;
 
@@ -25,6 +28,8 @@ function deviceInfo(id) {
     model: $('.model', card).value.trim() || 'Model belirtilmedi',
     os: $('.os', card).value.trim(),
     version: $('.version', card).value.trim(),
+    role: $('.role', card).value,
+    ports: $('.ports', card).value.split(',').map(x => x.trim()).filter(Boolean),
     config: state.configs[id]
   };
 }
@@ -40,6 +45,19 @@ function setMode(mode) {
   $$('.config-zone').forEach(z => z.style.display = mode === 'live' ? 'grid' : 'none');
 }
 
+function setModule(module) {
+  state.module = module;
+  $$('.module-picker button').forEach(b => b.classList.toggle('active', b.dataset.module === module));
+  $('#securityContext').hidden = module !== 'security';
+  $('#cablingContext').hidden = module !== 'cabling';
+  const text = {
+    routing: "İki cihazdaki VLAN 40'ı aynı Layer 2 ağ olarak uzat. Adı BILGI_ISLEM olsun. VNI ve gerekli loopback adreslerini sen belirle. Mevcut yapıyı bozmadan VXLAN EVPN kullan.",
+    security: "Kullanıcı portlarında 802.1X olsun, başarısız olursa MAB denensin. ClearPass RADIUS kullan, telefon ve bilgisayar aynı portta çalışsın. 8 saatte reauth ve CoA etkin olsun.",
+    cabling: "İki leaf cihazı yedekli olarak spine katmanına bağla. Boş uplink portlarını seç, 100G DAC kablo ve etiketleriyle saha iş emri hazırla. Ardından VXLAN EVPN config'ini üret."
+  };
+  $('#intentInput').value = text[module];
+}
+
 function sampleConfig(vendor, side) {
   const configs = {
     cisco: `hostname ${side === 'a' ? 'DC1-LEAF-01' : 'DC2-LEAF-01'}\n!\ninterface Loopback0\n ip address ${side === 'a' ? '10.255.0.11' : '10.255.0.12'} 255.255.255.255\n!\nrouter ospf 10\n router-id ${side === 'a' ? '10.255.0.11' : '10.255.0.12'}\n network 10.255.0.0 0.0.0.255 area 0\n!\nvlan 10\n name USERS\n!`,
@@ -51,12 +69,37 @@ function sampleConfig(vendor, side) {
 
 function detectIntent(text) {
   const t = text.toLocaleLowerCase('tr-TR');
+  if (/802\.1x|mab|radius|clearpass|cisco ise|nps|web auth|reauth|coa|secure access/.test(t)) return 'security';
+  if (/kablo|portları seç|saha iş|fiziksel|dac|aoc|fiber/.test(t)) return 'cabling';
   if (/vxlan|vni|layer 2|aynı vlan|vlan.*uzat|evpn/.test(t)) return 'vxlan';
   if (/static|statik|next.?hop|üzerinden eriş/.test(t)) return 'static';
   if (/eigrp/.test(t)) return 'eigrp';
   if (/bgp|farklı as|as 6\d{4}/.test(t)) return 'bgp';
   if (/ospf|area|aynı kurum|dinamik routing/.test(t)) return 'ospf';
   return 'ospf';
+}
+
+function securityConfig(vendor, side) {
+  const radius1 = ($('#radiusServers')?.value || '10.10.10.20, 10.10.10.21').split(',')[0].trim();
+  const radius2 = ($('#radiusServers')?.value || '10.10.10.20, 10.10.10.21').split(',')[1]?.trim() || '10.10.10.21';
+  const data = {
+    cisco: {
+      delta: `configure terminal\naaa new-model\nradius server NAC-1\n address ipv4 ${radius1} auth-port 1812 acct-port 1813\n key 0 <RADIUS_SECRET_FROM_VAULT>\nradius server NAC-2\n address ipv4 ${radius2} auth-port 1812 acct-port 1813\n key 0 <RADIUS_SECRET_FROM_VAULT>\naaa group server radius NAC\n server name NAC-1\n server name NAC-2\naaa authentication dot1x default group NAC\naaa authorization network default group NAC\naaa accounting dot1x default start-stop group NAC\ndot1x system-auth-control\n! Pilot port\ninterface GigabitEthernet1/0/5\n switchport mode access\n authentication host-mode multi-domain\n authentication order dot1x mab\n authentication priority dot1x mab\n authentication periodic\n authentication timer reauthenticate 28800\n mab\n dot1x pae authenticator\n spanning-tree portfast\n spanning-tree bpduguard enable\nend`,
+      verify: `show aaa servers\nshow authentication sessions interface GigabitEthernet1/0/5 details\nshow dot1x interface GigabitEthernet1/0/5 details\nshow radius statistics`,
+      rollback: `configure terminal\ninterface GigabitEthernet1/0/5\n no authentication periodic\n no authentication order\n no authentication priority\n no mab\n no dot1x pae authenticator\nend`
+    },
+    aruba: {
+      delta: `configure terminal\nradius-server host ${radius1} key ciphertext <RADIUS_SECRET_FROM_VAULT>\nradius-server host ${radius2} key ciphertext <RADIUS_SECRET_FROM_VAULT>\naaa group server radius NAC\n server ${radius1}\n server ${radius2}\n! Pilot port\ninterface 1/1/5\n aaa authentication port-access dot1x authenticator\n  enable\n aaa authentication port-access mac-auth\n  enable\n aaa authentication port-access client-limit 2\n spanning-tree port-type admin-edge\n spanning-tree bpdu-guard`,
+      verify: `show radius-server\nshow port-access clients interface 1/1/5 detail\nshow port-access authenticator interface 1/1/5\nshow aaa authentication port-access interface 1/1/5`,
+      rollback: `configure terminal\ninterface 1/1/5\n no aaa authentication port-access dot1x authenticator\n no aaa authentication port-access mac-auth`
+    },
+    huawei: {
+      delta: `system-view\nradius-server template NAC\n radius-server shared-key cipher <RADIUS_SECRET_FROM_VAULT>\n radius-server authentication ${radius1} 1812\n radius-server accounting ${radius1} 1813\n radius-server authentication ${radius2} 1812 secondary\nquit\ndot1x enable\ninterface GigabitEthernet0/0/5\n dot1x enable\n dot1x mac-bypass\n stp edged-port enable\n stp bpdu-protection\nquit\nreturn`,
+      verify: `display radius-server configuration\ndisplay dot1x interface GigabitEthernet0/0/5\ndisplay access-user interface GigabitEthernet0/0/5`,
+      rollback: `system-view\ninterface GigabitEthernet0/0/5\n undo dot1x mac-bypass\n undo dot1x enable\nquit\nreturn`
+    }
+  };
+  return data[vendor] || null;
 }
 
 function configFacts(info) {
@@ -71,6 +114,8 @@ function configFacts(info) {
 }
 
 function vendorConfigs(vendor, protocol, side) {
+  if (protocol === 'security') return securityConfig(vendor, side);
+  if (protocol === 'cabling') protocol = 'vxlan';
   const ip = side === 'a' ? '10.254.0.11' : '10.254.0.12';
   const peer = side === 'a' ? '10.254.0.12' : '10.254.0.11';
   const asn = side === 'a' ? '65001' : '65002';
@@ -160,7 +205,7 @@ function analyzePlan() {
   const intent = $('#intentInput').value.trim();
   const a = deviceInfo('a'); const b = deviceInfo('b');
   const fa = configFacts(a); const fb = configFacts(b);
-  let protocol = detectIntent(intent);
+  let protocol = state.module === 'routing' ? detectIntent(intent) : state.module;
   if (protocol === 'eigrp' && (a.vendor !== 'cisco' || b.vendor !== 'cisco')) protocol = 'ospf';
   const bothLoaded = fa.live && fb.live;
   const existingOspf = fa.ospf && fb.ospf;
@@ -170,13 +215,25 @@ function analyzePlan() {
     ospf: { title: 'OSPF', icon: 'OS', confidence: existingOspf ? 96 : 88, reason: `${existingOspf ? 'Her iki mevcut config içinde OSPF bulundu. ' : ''}Aynı yönetim alanındaki ağlar için minimum operasyonel yükle dinamik yönlendirme sağlıyor.`, tags: ['Process 10', 'Area 0', 'Minimum delta'] },
     static: { title: 'Static route', icon: 'SR', confidence: 97, reason: 'Tek hedef ağ ve açık bir next-hop bulunduğu için yeni bir dinamik protokol eklemeden en küçük değişiklik sağlanıyor.', tags: ['10.50.0.0/16', 'Tek next-hop', 'Düşük değişiklik'] },
     eigrp: { title: 'EIGRP', icon: 'EI', confidence: 89, reason: 'Her iki cihaz profili ve kullanıcı niyeti EIGRP ile uyumlu. Mevcut routing alanı genişletiliyor.', tags: ['AS 100', 'Named mode', 'Cisco profili'] }
+    ,security: { title: 'Secure Access + NAC', icon: 'SA', confidence: bothLoaded ? 92 : 83, reason: `${$('#nacPlatform').value} için 802.1X birincil, MAB fallback olacak şekilde pilot port politikası hazırlanıyor. RADIUS secret çıktıya yazılmıyor.`, tags: ['802.1X → MAB', 'CoA', '8 saat reauth', $('#nacPlatform').value] }
+    ,cabling: { title: 'Leaf–Spine Fiziksel Plan + VXLAN EVPN', icon: 'FP', confidence: bothLoaded ? 91 : 82, reason: 'Boş olduğu beyan edilen uplink portları yedekli bağlantı için eşlendi. Kablo, port, IP ve VXLAN değişikliği aynı uygulama planında birleştirildi.', tags: [$('#linkSpeed').value, $('#mediaType').value, $('#redundancy').value, 'VNI 10040'] }
   };
   const d = definitions[protocol];
-  const alternatives = [
+  let alternatives = [
     { key: protocol, name: d.title, note: 'Önerilen · mevcut niyete en uygun', score: d.confidence, enabled: true },
     { key: protocol === 'ospf' ? 'bgp' : 'ospf', name: protocol === 'ospf' ? 'eBGP' : 'OSPF', note: 'Uygulanabilir alternatif', score: protocol === 'vxlan' ? 58 : 72, enabled: true },
     { key: 'static', name: 'Static route', note: protocol === 'static' ? 'Önerilen' : 'Küçük topolojide uygulanabilir', score: protocol === 'static' ? 97 : 54, enabled: protocol !== 'vxlan' },
     { key: 'eigrp', name: 'EIGRP', note: (a.vendor === 'cisco' && b.vendor === 'cisco') ? 'Cihaz profilleriyle uyumlu' : 'Ortak vendor desteği bulunamadı', score: (a.vendor === 'cisco' && b.vendor === 'cisco') ? 68 : 0, enabled: a.vendor === 'cisco' && b.vendor === 'cisco' }
+  ];
+  if (protocol === 'security') alternatives = [
+    { key:'security', name:'802.1X + MAB', note:'Önerilen · kurumsal erişim profili', score:d.confidence, enabled:true },
+    { key:'security', name:'MAB only', note:'IoT/yazıcı profili · sonraki sürüm', score:64, enabled:false },
+    { key:'security', name:'Web authentication', note:'Misafir profili · sonraki sürüm', score:58, enabled:false }
+  ];
+  if (protocol === 'cabling') alternatives = [
+    { key:'cabling', name:'Çift uplink + VXLAN EVPN', note:'Önerilen · yedekli fabric bağlantısı', score:d.confidence, enabled:true },
+    { key:'cabling', name:'Tek uplink', note:'Daha düşük maliyet · formdan seçilebilir', score:61, enabled:false },
+    { key:'ospf', name:'Yalnız Layer 3 bağlantı', note:'L2 uzatma gerekmiyorsa daha sade', score:70, enabled:true }
   ];
   state.solution = protocol;
   state.plan = { intent, a, b, fa, fb, definition: d, alternatives, outputs: { a: vendorConfigs(a.vendor, protocol, 'a'), b: vendorConfigs(b.vendor, protocol, 'b') } };
@@ -195,11 +252,34 @@ function renderPlan() {
     ? '<b>Canlı config analiz edildi</b><span>Öneri, yüklenen snapshot üzerindeki en küçük değişiklik olarak hazırlandı.</span>'
     : `<b>${2 - missing} config eksik</b><span>Eksik cihaz için model tabanlı varsayım kullanıldı; uygulamadan önce gerçek config ile yeniden doğrulanmalı.</span>`;
   $('#alternativeList').innerHTML = p.alternatives.map((a, i) => `<div class="alternative-row"><div><strong>${a.name}</strong><small>${a.note}</small></div><div class="score-track"><i style="width:${a.score}%"></i></div><span class="score">${a.enabled ? '%' + a.score : '—'}</span><button class="alt-action" data-alt="${a.key}" ${!a.enabled || i === 0 ? 'disabled' : ''}>${i === 0 ? 'Seçili' : 'İncele'}</button></div>`).join('');
+  renderCablingPlan();
   const now = new Intl.DateTimeFormat('tr-TR', { hour: '2-digit', minute: '2-digit' }).format(new Date());
   $('#snapshotLabel').textContent = `Config snapshot · ${now}`;
   updateDeviceTabs(); renderOutput();
   $('#results').hidden = false;
   setTimeout(() => $('#results').scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
+}
+
+function renderCablingPlan() {
+  const p = state.plan;
+  const show = state.solution === 'cabling' || state.solution === 'vxlan';
+  $('#cablingCard').hidden = !show;
+  if (!show) return;
+  const aPorts = p.a.ports.length ? p.a.ports : ['49','50'];
+  const bPorts = p.b.ports.length ? p.b.ports : ['49','50'];
+  const media = $('#mediaType')?.value || 'QSFP28 DAC';
+  const speed = $('#linkSpeed')?.value || '100 Gbps';
+  const count = ($('#redundancy')?.value || 'Çift bağlantı') === 'Tek bağlantı' ? 1 : 2;
+  const rows = Array.from({length:count}, (_,i) => ({id:`CBL-${String(i+1).padStart(3,'0')}`,source:`${vendorName(p.a.vendor)} ${p.a.model}`,sp:aPorts[i]||aPorts[0],target:`${vendorName(p.b.vendor)} ${p.b.model}`,tp:bPorts[i]||bPorts[0],media:`${speed} · ${media}`}));
+  $('#cableRows').innerHTML = rows.map(r => `<tr><td>${r.id}</td><td>${r.source}</td><td><code>${r.sp}</code></td><td>${r.target}</td><td><code>${r.tp}</code></td><td>${r.media}</td><td><span class="cable-state">Önerildi</span></td></tr>`).join('');
+  $('#cablePlanStatus').textContent = `${rows.length} BAĞLANTI · SAHADA DOĞRULA`;
+  $('#fieldOrderText').textContent = `${rows.map(r=>`${r.id}: ${r.source} port ${r.sp} → ${r.target} port ${r.tp}`).join(' · ')}`;
+}
+
+function fieldOrderText() {
+  const p=state.plan; const count=($('#redundancy')?.value||'Çift bağlantı')==='Tek bağlantı'?1:2;
+  const links=Array.from({length:count},(_,i)=>`${i+2}. CBL-${String(i+1).padStart(3,'0')}: ${vendorName(p.a.vendor)} ${p.a.model} port ${p.a.ports[i]||p.a.ports[0]||'49'} → ${vendorName(p.b.vendor)} ${p.b.model} port ${p.b.ports[i]||p.b.ports[0]||'49'}.`).join('\n');
+  return `SAHA UYGULAMA EMRİ\n\n1. Cihaz adlarını, rack konumlarını ve portların boş olduğunu doğrulayın.\n${links}\n${count+2}. Her bağlantıda ${$('#linkSpeed')?.value||'100 Gbps'} link durumunu doğrulayın.\n${count+3}. LLDP komşularını beklenen cihaz ve portlarla karşılaştırın.\n${count+4}. Underlay komşuluğu kurulduktan sonra VXLAN/EVPN doğrulamasına geçin.\n\nKABLO: ${$('#cableLength')?.value||'3 m'} ${$('#mediaType')?.value||'QSFP28 DAC'}\nDURUM: Portlar config/envanter beyanından önerildi; fiziksel boşluk sahada doğrulanmalı.`;
 }
 
 function updateDeviceTabs() {
@@ -222,25 +302,30 @@ function renderOutput() {
   const output = p.outputs[state.outputDevice];
   let text;
   if (state.outputPanel === 'analysis') text = analysisText(state.outputDevice);
+  else if (state.outputPanel === 'field') text = fieldOrderText();
   else if (!output) text = `Bu çözüm ${vendorName(info.vendor)} ${info.model} profili için uygun görünmüyor.\n\nAlternatif olarak OSPF veya BGP planı seçin.`;
   else text = output[state.outputPanel] || 'Bu bölüm için çıktı bulunamadı.';
   $('#codeOutput').textContent = text;
   $('#codeLabel').textContent = `${vendorName(info.vendor).toUpperCase()} ${info.os.toUpperCase()} · ${state.outputPanel.toUpperCase()}`;
   $$('.output-nav button').forEach(b => b.classList.toggle('active', b.dataset.panel === state.outputPanel));
-  const orders = state.solution === 'vxlan'
+  const orders = state.solution === 'vxlan' || state.solution === 'cabling'
     ? ['Underlay erişimini ve loopback rotalarını doğrula', 'Spine/route-reflector EVPN komşuluklarını hazırla', 'Leaf VTEP ve VLAN–VNI eşleşmesini uygula', 'EVPN route ve MAC öğrenimini doğrula']
-    : ['Ön kontrol komutlarını çalıştır', 'Hedef cihaz konfigürasyonunu uygula', 'Kaynak cihaz konfigürasyonunu uygula', 'Komşuluk ve route tablosunu doğrula'];
+    : state.solution === 'security'
+      ? ['NAC/RADIUS politikasını hazırla', 'Tek pilot portta uygula', 'Başarılı, MAB ve RADIUS-down senaryolarını test et', 'Doğrulama sonrası port grubuna genişlet']
+      : ['Ön kontrol komutlarını çalıştır', 'Hedef cihaz konfigürasyonunu uygula', 'Kaynak cihaz konfigürasyonunu uygula', 'Komşuluk ve route tablosunu doğrula'];
   $('#applyOrder').innerHTML = orders.map(x => `<li>${x}</li>`).join('');
 }
 
 function switchAlternative(protocol) {
   const intent = $('#intentInput').value;
   const keywords = { ospf: ' OSPF kullan.', bgp: ' AS 65001 ve AS 65002 arasında eBGP kullan.', static: ' Statik route kullan.', eigrp: ' EIGRP kullan.', vxlan: ' VXLAN EVPN kullan.' };
+  if (!keywords[protocol]) return;
   $('#intentInput').value = intent.replace(/\s+(OSPF|eBGP|BGP|EIGRP|Static route|Statik route|VXLAN EVPN) kullan\.?$/i, '') + keywords[protocol];
   analyzePlan();
 }
 
 $$('.segmented button').forEach(b => b.addEventListener('click', () => setMode(b.dataset.mode)));
+$$('.module-picker button').forEach(b => b.addEventListener('click', () => setModule(b.dataset.module)));
 $$('.vendor').forEach(select => select.addEventListener('change', e => {
   const card = e.target.closest('.device-card');
   $('.vendor-dot', card).className = `vendor-dot ${e.target.value}`;
@@ -267,6 +352,8 @@ $('#deviceTabs').addEventListener('click', e => { const b = e.target.closest('bu
 $('.output-nav').addEventListener('click', e => { const b=e.target.closest('button'); if(!b)return; state.outputPanel=b.dataset.panel; renderOutput(); });
 $('#alternativeList').addEventListener('click', e => { const b=e.target.closest('[data-alt]'); if(b && !b.disabled) switchAlternative(b.dataset.alt); });
 $('#copyButton').addEventListener('click', async () => { await navigator.clipboard.writeText($('#codeOutput').textContent); $('#copyButton').textContent='Kopyalandı'; setTimeout(()=>$('#copyButton').textContent='Kopyala',1200); });
+$('#fieldOrderButton').addEventListener('click', () => { state.outputPanel='field'; renderOutput(); $('.output').scrollIntoView({behavior:'smooth',block:'start'}); });
 $('#themeButton').addEventListener('click', () => document.body.classList.toggle('dark'));
 
 setMode('live');
+setModule('routing');

@@ -4,15 +4,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Doğal dilden güvenli ağ değişiklik planları üretin.">
-  <title>NetIntent Lab</title>
+  <title>NetCube Intent</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <div class="shell">
     <header class="topbar">
-      <a class="brand" href="#" aria-label="NetIntent ana sayfa">
+      <a class="brand" href="#" aria-label="NetCube Intent ana sayfa">
         <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
-        <span>NetIntent <b>Lab</b></span>
+        <span>NetCube <b>Intent</b></span>
       </a>
       <div class="top-actions">
         <span class="status-pill"><span></span> Prototip</span>
@@ -25,12 +25,12 @@
         <div>
           <p class="eyebrow">INTENT-TO-CONFIG WORKSPACE</p>
           <h1>Ne yapmak istediğini anlat.<br><span>Ağ planını biz çıkaralım.</span></h1>
-          <p class="hero-copy">Cisco, Aruba ve Huawei cihazları için mevcut yapıyı okuyup en uygun protokolü, minimum değişikliği ve güvenli geri dönüş planını hazırlayan çalışma alanı.</p>
+          <p class="hero-copy">Cisco, Aruba ve Huawei cihazları için routing, VXLAN, secure access ve fiziksel kablolama planını tek değişiklik paketi içinde hazırlayan çalışma alanı.</p>
         </div>
         <div class="hero-metric" aria-label="Desteklenen çözüm kapsamı">
           <span>Çözüm kapsamı</span>
-          <strong>6</strong>
-          <small>OSPF · BGP · Static · EIGRP · VXLAN · EVPN</small>
+          <strong>10</strong>
+          <small>Routing · VXLAN · NAC · RADIUS · ACL · 802.1X · MAB · Cabling</small>
         </div>
       </section>
 
@@ -47,6 +47,12 @@
         </div>
         <p class="section-note" id="modeNote">Canlı sistemde mevcut config analiz edilir ve yalnızca gerekli delta üretilir.</p>
 
+        <div class="module-picker" role="radiogroup" aria-label="Çözüm alanı">
+          <button type="button" class="active" data-module="routing"><span>01</span><b>Routing & Overlay</b><small>OSPF, BGP, static, VXLAN EVPN</small></button>
+          <button type="button" data-module="security"><span>02</span><b>Secure Access</b><small>802.1X, MAB, RADIUS, ACL</small></button>
+          <button type="button" data-module="cabling"><span>03</span><b>Fiziksel Plan</b><small>Port, kablo, optik ve saha emri</small></button>
+        </div>
+
         <div class="device-grid">
           <article class="device-card" data-device="a">
             <div class="device-title">
@@ -59,6 +65,8 @@
               <label>Model<input class="model" value="C9300X-24Y" placeholder="örn. C9300X-24Y"></label>
               <label>İşletim sistemi<input class="os" value="IOS-XE" placeholder="örn. IOS-XE"></label>
               <label>Sürüm<input class="version" value="17.12" placeholder="örn. 17.12"></label>
+              <label>Cihaz rolü<select class="role"><option value="leaf">Leaf / Access</option><option value="spine">Spine / Core</option><option value="distribution">Distribution</option></select></label>
+              <label>Boş uplink portları<input class="ports" value="49, 50" placeholder="örn. 49, 50"></label>
             </div>
             <div class="config-zone">
               <div><strong>Mevcut config</strong><small class="config-status">Henüz yüklenmedi</small></div>
@@ -78,6 +86,8 @@
               <label>Model<input class="model" value="CX 6300M" placeholder="örn. CX 6300M"></label>
               <label>İşletim sistemi<input class="os" value="AOS-CX" placeholder="örn. AOS-CX"></label>
               <label>Sürüm<input class="version" value="10.13" placeholder="örn. 10.13"></label>
+              <label>Cihaz rolü<select class="role"><option value="leaf">Leaf / Access</option><option value="spine">Spine / Core</option><option value="distribution">Distribution</option></select></label>
+              <label>Boş uplink portları<input class="ports" value="49, 50" placeholder="örn. 49, 50"></label>
             </div>
             <div class="config-zone">
               <div><strong>Mevcut config</strong><small class="config-status">Henüz yüklenmedi</small></div>
@@ -85,6 +95,22 @@
               <button class="text-button sample-config" type="button">Örnek config kullan</button>
             </div>
           </article>
+        </div>
+
+        <div class="context-panel" id="securityContext" hidden>
+          <div><p class="context-kicker">NAC / RADIUS PROFİLİ</p><strong>Erişim güvenliği girdileri</strong></div>
+          <label>NAC platformu<select id="nacPlatform"><option>Aruba ClearPass</option><option>Cisco ISE</option><option>Microsoft NPS</option></select></label>
+          <label>RADIUS sunucuları<input id="radiusServers" value="10.10.10.20, 10.10.10.21"></label>
+          <label>Port profili<select id="accessProfile"><option>Telefon + bilgisayar</option><option>Kurumsal kullanıcı</option><option>Yazıcı / IoT</option><option>Misafir</option></select></label>
+          <label>Hata davranışı<select id="failMode"><option value="closed">Fail closed</option><option value="critical">Critical VLAN</option></select></label>
+        </div>
+
+        <div class="context-panel" id="cablingContext" hidden>
+          <div><p class="context-kicker">FİZİKSEL UYGULAMA</p><strong>Kablo ve port girdileri</strong></div>
+          <label>Bağlantı hızı<select id="linkSpeed"><option>100 Gbps</option><option>40 Gbps</option><option>25 Gbps</option><option>10 Gbps</option></select></label>
+          <label>Ortam<select id="mediaType"><option>QSFP28 DAC</option><option>QSFP28 AOC</option><option>Single-mode fiber</option><option>Multi-mode fiber</option></select></label>
+          <label>Yedeklilik<select id="redundancy"><option>Çift bağlantı</option><option>Tek bağlantı</option></select></label>
+          <label>Mesafe<input id="cableLength" value="3 m"></label>
         </div>
       </section>
 
@@ -128,6 +154,23 @@
           <div id="alternativeList"></div>
         </div>
 
+        <div class="cabling-plan card" id="cablingCard">
+          <div class="subhead">
+            <div><h3>Fiziksel bağlantı planı</h3><p>Config, port ve kablo eşleşmesi aynı değişiklik kimliğiyle üretildi</p></div>
+            <span id="cablePlanStatus">2 BAĞLANTI · ÖNERİ</span>
+          </div>
+          <div class="cable-table-wrap">
+            <table class="cable-table">
+              <thead><tr><th>Kablo</th><th>Kaynak</th><th>Port</th><th>Hedef</th><th>Port</th><th>Ortam</th><th>Durum</th></tr></thead>
+              <tbody id="cableRows"></tbody>
+            </table>
+          </div>
+          <div class="field-order">
+            <div><span class="field-icon">↗</span><div><strong>Saha uygulama emri</strong><small id="fieldOrderText">Kabloları belirtilen portlara takın ve LLDP doğrulamasını çalıştırın.</small></div></div>
+            <button type="button" id="fieldOrderButton">İş emrini göster</button>
+          </div>
+        </div>
+
         <div class="output card">
           <div class="output-top">
             <div><h3>Değişiklik paketi</h3><p id="deltaCaption">Mevcut config üzerine uygulanacak minimum komutlar</p></div>
@@ -141,6 +184,7 @@
             <button type="button" data-panel="verify">Doğrulama</button>
             <button type="button" data-panel="rollback">Rollback</button>
             <button type="button" data-panel="analysis">Analiz</button>
+            <button type="button" data-panel="field">Saha emri</button>
           </nav>
           <div class="code-toolbar"><span id="codeLabel">CISCO IOS-XE · DELTA</span><button id="copyButton" type="button">Kopyala</button></div>
           <pre><code id="codeOutput"></code></pre>
@@ -152,7 +196,7 @@
       </section>
     </main>
 
-    <footer><span>NetIntent Lab · güvenli ağ değişikliği prototipi</span><span>Plan üretir, uygulama yapmaz.</span></footer>
+    <footer><span>NetCube Intent · güvenli ağ değişikliği prototipi</span><span>Plan üretir, uygulama yapmaz.</span></footer>
   </div>
   <script src="app.js"></script>
 </body>
