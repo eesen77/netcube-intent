@@ -1,6 +1,6 @@
 {
   "name": "netcube-intent-desktop",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "NetCube Intent - network intent, routing, VXLAN and switch hardening desktop tool",
   "main": "main.js",
   "author": "NetCube",
@@ -8,7 +8,9 @@
   "private": true,
   "scripts": {
     "sync": "node sync-app.js",
-    "build:win": "node sync-app.js && electron-builder --win portable"
+    "build:portable": "node sync-app.js && electron-builder --win portable",
+    "build:installer": "node sync-app.js && electron-builder --win nsis",
+    "build:win": "node sync-app.js && electron-builder --win nsis portable"
   },
   "build": {
     "appId": "com.netcube.intent",
@@ -23,14 +25,24 @@
     },
     "win": {
       "target": [
+        "nsis",
         "portable"
-      ],
-      "artifactName": "NetCube-Intent-${version}-Portable.exe"
+      ]
     },
     "portable": {
       "artifactName": "NetCube-Intent-${version}-Portable.exe"
     },
-    "compression": "maximum"
+    "compression": "maximum",
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "NetCube Intent",
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "NetCube-Intent-${version}-Setup.exe"
+    }
   },
   "devDependencies": {
     "electron": "^45.3.0",

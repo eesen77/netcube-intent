@@ -1,6 +1,9 @@
 const { app, BrowserWindow, shell } = require('electron');
 const path = require('path');
 
+app.setAppUserModelId('com.netcube.intent');
+if (!app.requestSingleInstanceLock()) app.quit();
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1440,
@@ -32,6 +35,11 @@ function createWindow() {
     if (!url.startsWith('file://')) event.preventDefault();
   });
 }
+
+app.on('second-instance', () => {
+  const [win] = BrowserWindow.getAllWindows();
+  if (win) { if (win.isMinimized()) win.restore(); win.focus(); }
+});
 
 app.whenReady().then(() => {
   createWindow();
