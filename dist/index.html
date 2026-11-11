@@ -51,6 +51,8 @@
           <button type="button" class="active" data-module="routing"><span>01</span><b>Routing & Overlay</b><small>OSPF, BGP, static, VXLAN EVPN</small></button>
           <button type="button" data-module="security"><span>02</span><b>Secure Access</b><small>802.1X, MAB, RADIUS, ACL</small></button>
           <button type="button" data-module="cabling"><span>03</span><b>Fiziksel Plan</b><small>Port, kablo, optik ve saha emri</small></button>
+          <button type="button" data-module="hardening"><span>04</span><b>Switch Hardening</b><small>Tam baseline, audit ve hedef config</small></button>
+          <button type="button" data-module="campus"><span>05</span><b>Campus Builder</b><small>Core, access, VLAN ve topoloji</small></button>
         </div>
 
         <div class="device-grid">
@@ -62,12 +64,14 @@
             </div>
             <div class="form-grid">
               <label>Üretici<select class="vendor"><option value="cisco">Cisco</option><option value="aruba">Aruba</option><option value="huawei">Huawei</option></select></label>
-              <label>Model<input class="model" value="C9300X-24Y" placeholder="örn. C9300X-24Y"></label>
+              <label>Model<select class="model"></select></label>
               <label>İşletim sistemi<input class="os" value="IOS-XE" placeholder="örn. IOS-XE"></label>
               <label>Sürüm<input class="version" value="17.12" placeholder="örn. 17.12"></label>
               <label>Cihaz rolü<select class="role"><option value="leaf">Leaf / Access</option><option value="spine">Spine / Core</option><option value="distribution">Distribution</option></select></label>
               <label>Boş uplink portları<input class="ports" value="49, 50" placeholder="örn. 49, 50"></label>
             </div>
+            <label class="custom-model" hidden>Özel model adı<input class="model-custom" placeholder="örn. C9300-24T"></label>
+            <div class="cap-box"><div class="cap-chips"></div><small class="cap-note"></small></div>
             <div class="config-zone">
               <div><strong>Mevcut config</strong><small class="config-status">Henüz yüklenmedi</small></div>
               <label class="upload-button">Dosya seç<input class="config-file" type="file" accept=".txt,.cfg,.conf,.log"></label>
@@ -83,12 +87,14 @@
             </div>
             <div class="form-grid">
               <label>Üretici<select class="vendor"><option value="aruba">Aruba</option><option value="cisco">Cisco</option><option value="huawei">Huawei</option></select></label>
-              <label>Model<input class="model" value="CX 6300M" placeholder="örn. CX 6300M"></label>
+              <label>Model<select class="model"></select></label>
               <label>İşletim sistemi<input class="os" value="AOS-CX" placeholder="örn. AOS-CX"></label>
               <label>Sürüm<input class="version" value="10.13" placeholder="örn. 10.13"></label>
               <label>Cihaz rolü<select class="role"><option value="leaf">Leaf / Access</option><option value="spine">Spine / Core</option><option value="distribution">Distribution</option></select></label>
               <label>Boş uplink portları<input class="ports" value="49, 50" placeholder="örn. 49, 50"></label>
             </div>
+            <label class="custom-model" hidden>Özel model adı<input class="model-custom" placeholder="örn. C9300-24T"></label>
+            <div class="cap-box"><div class="cap-chips"></div><small class="cap-note"></small></div>
             <div class="config-zone">
               <div><strong>Mevcut config</strong><small class="config-status">Henüz yüklenmedi</small></div>
               <label class="upload-button">Dosya seç<input class="config-file" type="file" accept=".txt,.cfg,.conf,.log"></label>
@@ -96,6 +102,8 @@
             </div>
           </article>
         </div>
+
+        <div class="device-actions" id="deviceActions"><button type="button" class="text-button" id="addDeviceButton">+ Cihaz ekle</button><small id="deviceCountNote">2 / 6 cihaz</small><small>Rol olarak Spine seçilen cihazlar route-reflector/omurga olur; diğerleri leaf bağlanır. Spine yoksa cihazlar mesh bağlanır.</small></div>
 
         <div class="context-panel" id="securityContext" hidden>
           <div><p class="context-kicker">NAC / RADIUS PROFİLİ</p><strong>Erişim güvenliği girdileri</strong></div>
@@ -111,6 +119,32 @@
           <label>Ortam<select id="mediaType"><option>QSFP28 DAC</option><option>QSFP28 AOC</option><option>Single-mode fiber</option><option>Multi-mode fiber</option></select></label>
           <label>Yedeklilik<select id="redundancy"><option>Çift bağlantı</option><option>Tek bağlantı</option></select></label>
           <label>Mesafe<input id="cableLength" value="3 m"></label>
+        </div>
+
+        <div class="context-panel hardening-context" id="hardeningContext" hidden>
+          <div><p class="context-kicker">GÜVENLİ BASELINE</p><strong>Switch hardening girdileri</strong></div>
+          <label>Hostname<input id="hardHostname" value="IST-ACCESS-SW01"></label>
+          <label>Management VLAN<input id="mgmtVlan" value="99"></label>
+          <label>Management IP<input id="mgmtIp" value="10.99.0.11/24"></label>
+          <label>Default gateway<input id="mgmtGateway" value="10.99.0.1"></label>
+          <label>İzinli yönetim ağı<input id="adminNetwork" value="10.10.10.0/24"></label>
+          <label>NTP sunucuları<input id="ntpServers" value="10.10.20.10, 10.10.20.11"></label>
+          <label>Syslog sunucusu<input id="syslogServer" value="10.10.30.20"></label>
+          <label>Kimlik doğrulama<select id="adminAuth"><option value="radius">RADIUS + local fallback</option><option value="local">Yalnız local</option></select></label>
+        </div>
+
+        <div class="context-panel campus-context" id="campusContext" hidden>
+          <div><p class="context-kicker">CAMPUS TASARIMI</p><strong>Switch envanteri ve VLAN planı</strong></div>
+          <label>Core adedi<input id="coreCount" type="number" min="1" max="4" value="2"></label>
+          <label>Core üretici<select id="coreVendor"><option value="cisco">Cisco</option><option value="aruba">Aruba</option><option value="huawei">Huawei</option></select></label>
+          <label>Core model<select id="coreModel"></select></label>
+          <label>Access adedi<input id="accessCount" type="number" min="1" max="24" value="4"></label>
+          <label>Access üretici<select id="accessVendor"><option value="cisco">Cisco</option><option value="aruba">Aruba</option><option value="huawei">Huawei</option></select></label>
+          <label>Access model<select id="accessModel"></select></label>
+          <label>Uplink yapısı<select id="campusRedundancy"><option value="dual">Her access iki core'a</option><option value="single">Tek core uplink</option></select></label>
+          <label>Gateway şablonu<input id="gatewayTemplate" value="10.{VLAN}.0.1/24"></label>
+          <label>Management subnet<input id="campusMgmtSubnet" value="10.99.0.0/24"></label>
+          <label class="campus-vlans">VLAN ID ve isimleri<textarea id="campusVlans" rows="3">10:USERS, 20:VOICE, 40:BILGI_ISLEM, 99:MANAGEMENT</textarea></label>
         </div>
       </section>
 
@@ -154,6 +188,12 @@
           <div id="alternativeList"></div>
         </div>
 
+        <div class="topology-card card" id="topologyCard" hidden>
+          <div class="subhead"><div><h3>Campus topolojisi</h3><p>Core, access, uplink ve VLAN kapsamı</p></div><span id="topologySummary">2 CORE · 4 ACCESS</span></div>
+          <div id="topologyDiagram" class="topology-diagram" role="img" aria-label="Oluşturulan campus switch topolojisi"></div>
+          <div class="topology-legend" id="topologyLegend"></div>
+        </div>
+
         <div class="cabling-plan card" id="cablingCard">
           <div class="subhead">
             <div><h3>Fiziksel bağlantı planı</h3><p>Config, port ve kablo eşleşmesi aynı değişiklik kimliğiyle üretildi</p></div>
@@ -185,6 +225,8 @@
             <button type="button" data-panel="rollback">Rollback</button>
             <button type="button" data-panel="analysis">Analiz</button>
             <button type="button" data-panel="field">Saha emri</button>
+            <button type="button" class="hardening-only" data-panel="full" hidden>Tam hedef config</button>
+            <button type="button" class="hardening-only" data-panel="audit" hidden>Hardening raporu</button>
           </nav>
           <div class="code-toolbar"><span id="codeLabel">CISCO IOS-XE · DELTA</span><button id="copyButton" type="button">Kopyala</button></div>
           <pre><code id="codeOutput"></code></pre>
@@ -198,6 +240,9 @@
 
     <footer><span>NetCube Intent · güvenli ağ değişikliği prototipi</span><span>Plan üretir, uygulama yapmaz.</span></footer>
   </div>
-  <script src="app.js"></script>
+  <script src="devices.js?v=0.7.0"></script>
+  <script src="parser.js?v=0.7.0"></script>
+  <script src="fabric.js?v=0.7.0"></script>
+  <script src="app.js?v=0.7.0"></script>
 </body>
 </html>

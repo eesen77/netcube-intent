@@ -45,7 +45,7 @@ h1 span { color: #738078; }
 .section-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
 .section-head h2, .result-header h2 { margin: 0; font-size: 26px; font-weight: 500; letter-spacing: -.03em; }
 .section-note { margin: 10px 0 26px; color: var(--muted); font-size: 14px; }
-.module-picker { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 22px; }
+.module-picker { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 22px; }
 .module-picker button { text-align: left; display: grid; grid-template-columns: auto 1fr; column-gap: 10px; align-items: center; border: 1px solid var(--line); background: transparent; border-radius: 12px; padding: 13px; cursor: pointer; }
 .module-picker button > span { grid-row: 1 / 3; width: 30px; height: 30px; display: grid; place-items: center; border-radius: 8px; background: var(--surface-2); color: var(--muted); font-size: 10px; font-weight: 800; }
 .module-picker button b { font-size: 13px; }.module-picker button small { color: var(--muted); font-size: 10px; margin-top: 2px; }
@@ -70,6 +70,9 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent-dark); bo
 .config-zone small { display: block; color: var(--muted); font-weight: 400; margin-top: 3px; }
 .context-panel { margin-top: 16px; display: grid; grid-template-columns: 1.15fr repeat(4, 1fr); gap: 12px; align-items: end; padding: 17px; border: 1px dashed var(--line); border-radius: 14px; background: var(--surface-2); }
 .context-panel[hidden] { display: none; }.context-panel strong { font-size: 14px; }.context-kicker { margin: 0 0 4px; color: var(--accent-dark); font-size: 9px; letter-spacing: .12em; font-weight: 800; }
+.hardening-context { grid-template-columns: 1.2fr repeat(4, 1fr); }
+.campus-context { grid-template-columns: 1.2fr repeat(4, 1fr); }
+.campus-vlans { grid-column: 2 / -1; }.campus-vlans textarea { margin-top: 6px; padding: 10px 11px; resize: vertical; min-height: 64px; }
 .config-status.loaded { color: #30865a; }
 .upload-button { position: relative; overflow: hidden; padding: 8px 11px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; color: var(--ink); }
 .upload-button input { position: absolute; opacity: 0; inset: 0; cursor: pointer; }
@@ -99,6 +102,12 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent-dark); bo
 .warning span { color: #746b4c; }
 .alternatives { margin-top: 16px; padding: 22px 26px; }
 .cabling-plan { margin-top: 16px; padding: 22px 26px; }
+.topology-card { margin-top: 16px; padding: 22px 26px; overflow: hidden; }
+.topology-diagram { margin-top: 16px; overflow-x: auto; border-radius: 14px; background: var(--surface-2); min-height: 340px; }
+.topology-diagram svg { display: block; width: 100%; min-width: 760px; height: auto; }
+.topology-diagram .link { stroke: var(--muted); stroke-width: 2; opacity: .48; }.topology-diagram .link.secondary { stroke-dasharray: 6 5; }
+.topology-diagram .node { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; }.topology-diagram .node-core { fill: var(--navy); stroke: var(--navy); }.topology-diagram .node-label { fill: var(--ink); font: 600 12px Inter, sans-serif; }.topology-diagram .node-meta { fill: var(--muted); font: 10px Inter, sans-serif; }.topology-diagram .core-label { fill: var(--accent); }.topology-diagram .core-meta { fill: #aebbb5; }
+.topology-legend { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 13px; }.topology-legend span { padding: 6px 9px; border-radius: 7px; background: var(--surface-2); color: var(--muted); font-size: 11px; }
 .cable-table-wrap { overflow-x: auto; margin-top: 15px; }
 .cable-table { width: 100%; border-collapse: collapse; min-width: 760px; font-size: 12px; }
 .cable-table th { color: var(--muted); text-align: left; font-size: 9px; letter-spacing: .1em; text-transform: uppercase; padding: 9px 10px; border-bottom: 1px solid var(--line); }
@@ -149,3 +158,23 @@ body.dark .warning { background:#302c1d; }.dark input,.dark select,.dark textare
   .result-header,.output-top { align-items:flex-start; flex-direction:column; }.device-tabs { width:100%; }.device-tabs button { flex:1; }
   .output-nav { gap:15px; overflow-x:auto; }.apply-order { grid-template-columns:1fr; gap:10px; }footer { gap:10px; flex-direction:column; }
 }
+
+/* Cihaz yetenek göstergeleri */
+.cap-box { margin-top: 14px; }
+.cap-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.cap { padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; border: 1px solid var(--line); }
+.cap.on { background: var(--surface-2); color: var(--ink); }
+.cap.off { color: var(--muted); text-decoration: line-through; opacity: .7; }
+.cap-note { display: block; margin-top: 8px; color: var(--muted); font-size: 12px; }
+.custom-model { display: grid; gap: 6px; margin-top: 12px; font-size: 12px; }
+.warning { flex-wrap: wrap; }
+.warning .compat-note { flex-basis: 100%; color: #8a4b2a; }
+body.dark .warning .compat-note { color: #e0a878; }
+
+/* Çoklu cihaz */
+.device-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-top: 14px; }
+.device-actions small { color: var(--muted); font-size: 12px; }
+.device-actions .text-button:disabled { opacity: .4; cursor: not-allowed; }
+.remove-device { border: 1px solid var(--line); background: transparent; color: var(--muted); width: 28px; height: 28px; border-radius: 8px; cursor: pointer; font-size: 16px; line-height: 1; }
+.remove-device:hover { color: var(--danger); border-color: var(--danger); }
+.device-tabs { flex-wrap: wrap; }

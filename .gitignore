@@ -1,0 +1,4 @@
+desktop/node_modules/
+desktop/release/
+*.log
+*.tmp

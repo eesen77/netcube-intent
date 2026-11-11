@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Doğal dilden güvenli ağ değişiklik planları üretin.">
+  <title>NetCube Intent</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <a class="brand" href="#" aria-label="NetCube Intent ana sayfa">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span>NetCube <b>Intent</b></span>
+      </a>
+      <div class="top-actions">
+        <span class="status-pill"><span></span> Prototip</span>
+        <button class="icon-button" id="themeButton" type="button" aria-label="Tema değiştir">◐</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div>
+          <p class="eyebrow">INTENT-TO-CONFIG WORKSPACE</p>
+          <h1>Ne yapmak istediğini anlat.<br><span>Ağ planını biz çıkaralım.</span></h1>
+          <p class="hero-copy">Cisco, Aruba ve Huawei cihazları için routing, VXLAN, secure access ve fiziksel kablolama planını tek değişiklik paketi içinde hazırlayan çalışma alanı.</p>
+        </div>
+        <div class="hero-metric" aria-label="Desteklenen çözüm kapsamı">
+          <span>Çözüm kapsamı</span>
+          <strong>10</strong>
+          <small>Routing · VXLAN · NAC · RADIUS · ACL · 802.1X · MAB · Cabling</small>
+        </div>
+      </section>
+
+      <section class="workspace card">
+        <div class="section-head">
+          <div>
+            <p class="step">01 / ÇALIŞMA TÜRÜ</p>
+            <h2>Ortamı tanımla</h2>
+          </div>
+          <div class="segmented" role="radiogroup" aria-label="Çalışma türü">
+            <button type="button" data-mode="new">Yeni kurulum</button>
+            <button type="button" data-mode="live" class="active">Canlı sistem</button>
+          </div>
+        </div>
+        <p class="section-note" id="modeNote">Canlı sistemde mevcut config analiz edilir ve yalnızca gerekli delta üretilir.</p>
+
+        <div class="module-picker" role="radiogroup" aria-label="Çözüm alanı">
+          <button type="button" class="active" data-module="routing"><span>01</span><b>Routing & Overlay</b><small>OSPF, BGP, static, VXLAN EVPN</small></button>
+          <button type="button" data-module="security"><span>02</span><b>Secure Access</b><small>802.1X, MAB, RADIUS, ACL</small></button>
+          <button type="button" data-module="cabling"><span>03</span><b>Fiziksel Plan</b><small>Port, kablo, optik ve saha emri</small></button>
+          <button type="button" data-module="hardening"><span>04</span><b>Switch Hardening</b><small>Tam baseline, audit ve hedef config</small></button>
+          <button type="button" data-module="campus"><span>05</span><b>Campus Builder</b><small>Core, access, VLAN ve topoloji</small></button>
+        </div>
+
+        <div class="device-grid">
+          <article class="device-card" data-device="a">
+            <div class="device-title">
+              <span class="device-index">A</span>
+              <div><strong>Kaynak cihaz</strong><small>Merkez / Leaf 1</small></div>
+              <span class="vendor-dot cisco"></span>
+            </div>
+            <div class="form-grid">
+              <label>Üretici<select class="vendor"><option value="cisco">Cisco</option><option value="aruba">Aruba</option><option value="huawei">Huawei</option></select></label>
+              <label>Model<select class="model"></select></label>
+              <label>İşletim sistemi<input class="os" value="IOS-XE" placeholder="örn. IOS-XE"></label>
+              <label>Sürüm<input class="version" value="17.12" placeholder="örn. 17.12"></label>
+              <label>Cihaz rolü<select class="role"><option value="leaf">Leaf / Access</option><option value="spine">Spine / Core</option><option value="distribution">Distribution</option></select></label>
+              <label>Boş uplink portları<input class="ports" value="49, 50" placeholder="örn. 49, 50"></label>
+            </div>
+            <label class="custom-model" hidden>Özel model adı<input class="model-custom" placeholder="örn. C9300-24T"></label>
+            <div class="cap-box"><div class="cap-chips"></div><small class="cap-note"></small></div>
+            <div class="config-zone">
+              <div><strong>Mevcut config</strong><small class="config-status">Henüz yüklenmedi</small></div>
+              <label class="upload-button">Dosya seç<input class="config-file" type="file" accept=".txt,.cfg,.conf,.log"></label>
+              <button class="text-button sample-config" type="button">Örnek config kullan</button>
+            </div>
+          </article>
+
+          <article class="device-card" data-device="b">
+            <div class="device-title">
+              <span class="device-index">B</span>
+              <div><strong>Hedef cihaz</strong><small>Şube / Leaf 2</small></div>
+              <span class="vendor-dot aruba"></span>
+            </div>
+            <div class="form-grid">
+              <label>Üretici<select class="vendor"><option value="aruba">Aruba</option><option value="cisco">Cisco</option><option value="huawei">Huawei</option></select></label>
+              <label>Model<select class="model"></select></label>
+              <label>İşletim sistemi<input class="os" value="AOS-CX" placeholder="örn. AOS-CX"></label>
+              <label>Sürüm<input class="version" value="10.13" placeholder="örn. 10.13"></label>
+              <label>Cihaz rolü<select class="role"><option value="leaf">Leaf / Access</option><option value="spine">Spine / Core</option><option value="distribution">Distribution</option></select></label>
+              <label>Boş uplink portları<input class="ports" value="49, 50" placeholder="örn. 49, 50"></label>
+            </div>
+            <label class="custom-model" hidden>Özel model adı<input class="model-custom" placeholder="örn. C9300-24T"></label>
+            <div class="cap-box"><div class="cap-chips"></div><small class="cap-note"></small></div>
+            <div class="config-zone">
+              <div><strong>Mevcut config</strong><small class="config-status">Henüz yüklenmedi</small></div>
+              <label class="upload-button">Dosya seç<input class="config-file" type="file" accept=".txt,.cfg,.conf,.log"></label>
+              <button class="text-button sample-config" type="button">Örnek config kullan</button>
+            </div>
+          </article>
+        </div>
+
+        <div class="device-actions" id="deviceActions"><button type="button" class="text-button" id="addDeviceButton">+ Cihaz ekle</button><small id="deviceCountNote">2 / 6 cihaz</small><small>Rol olarak Spine seçilen cihazlar route-reflector/omurga olur; diğerleri leaf bağlanır. Spine yoksa cihazlar mesh bağlanır.</small></div>
+
+        <div class="context-panel" id="securityContext" hidden>
+          <div><p class="context-kicker">NAC / RADIUS PROFİLİ</p><strong>Erişim güvenliği girdileri</strong></div>
+          <label>NAC platformu<select id="nacPlatform"><option>Aruba ClearPass</option><option>Cisco ISE</option><option>Microsoft NPS</option></select></label>
+          <label>RADIUS sunucuları<input id="radiusServers" value="10.10.10.20, 10.10.10.21"></label>
+          <label>Port profili<select id="accessProfile"><option>Telefon + bilgisayar</option><option>Kurumsal kullanıcı</option><option>Yazıcı / IoT</option><option>Misafir</option></select></label>
+          <label>Hata davranışı<select id="failMode"><option value="closed">Fail closed</option><option value="critical">Critical VLAN</option></select></label>
+        </div>
+
+        <div class="context-panel" id="cablingContext" hidden>
+          <div><p class="context-kicker">FİZİKSEL UYGULAMA</p><strong>Kablo ve port girdileri</strong></div>
+          <label>Bağlantı hızı<select id="linkSpeed"><option>100 Gbps</option><option>40 Gbps</option><option>25 Gbps</option><option>10 Gbps</option></select></label>
+          <label>Ortam<select id="mediaType"><option>QSFP28 DAC</option><option>QSFP28 AOC</option><option>Single-mode fiber</option><option>Multi-mode fiber</option></select></label>
+          <label>Yedeklilik<select id="redundancy"><option>Çift bağlantı</option><option>Tek bağlantı</option></select></label>
+          <label>Mesafe<input id="cableLength" value="3 m"></label>
+        </div>
+
+        <div class="context-panel hardening-context" id="hardeningContext" hidden>
+          <div><p class="context-kicker">GÜVENLİ BASELINE</p><strong>Switch hardening girdileri</strong></div>
+          <label>Hostname<input id="hardHostname" value="IST-ACCESS-SW01"></label>
+          <label>Management VLAN<input id="mgmtVlan" value="99"></label>
+          <label>Management IP<input id="mgmtIp" value="10.99.0.11/24"></label>
+          <label>Default gateway<input id="mgmtGateway" value="10.99.0.1"></label>
+          <label>İzinli yönetim ağı<input id="adminNetwork" value="10.10.10.0/24"></label>
+          <label>NTP sunucuları<input id="ntpServers" value="10.10.20.10, 10.10.20.11"></label>
+          <label>Syslog sunucusu<input id="syslogServer" value="10.10.30.20"></label>
+          <label>Kimlik doğrulama<select id="adminAuth"><option value="radius">RADIUS + local fallback</option><option value="local">Yalnız local</option></select></label>
+        </div>
+
+        <div class="context-panel campus-context" id="campusContext" hidden>
+          <div><p class="context-kicker">CAMPUS TASARIMI</p><strong>Switch envanteri ve VLAN planı</strong></div>
+          <label>Core adedi<input id="coreCount" type="number" min="1" max="4" value="2"></label>
+          <label>Core üretici<select id="coreVendor"><option value="cisco">Cisco</option><option value="aruba">Aruba</option><option value="huawei">Huawei</option></select></label>
+          <label>Core model<select id="coreModel"></select></label>
+          <label>Access adedi<input id="accessCount" type="number" min="1" max="24" value="4"></label>
+          <label>Access üretici<select id="accessVendor"><option value="cisco">Cisco</option><option value="aruba">Aruba</option><option value="huawei">Huawei</option></select></label>
+          <label>Access model<select id="accessModel"></select></label>
+          <label>Uplink yapısı<select id="campusRedundancy"><option value="dual">Her access iki core'a</option><option value="single">Tek core uplink</option></select></label>
+          <label>Gateway şablonu<input id="gatewayTemplate" value="10.{VLAN}.0.1/24"></label>
+          <label>Management subnet<input id="campusMgmtSubnet" value="10.99.0.0/24"></label>
+          <label class="campus-vlans">VLAN ID ve isimleri<textarea id="campusVlans" rows="3">10:USERS, 20:VOICE, 40:BILGI_ISLEM, 99:MANAGEMENT</textarea></label>
+        </div>
+      </section>
+
+      <section class="intent card">
+        <div class="section-head">
+          <div><p class="step">02 / NİYET</p><h2>Ne yapmak istiyorsun?</h2></div>
+          <button class="example-button" id="exampleButton" type="button">Örnek değiştir</button>
+        </div>
+        <label class="intent-box">
+          <span class="sr-only">Ağ değişikliği isteği</span>
+          <textarea id="intentInput" rows="4">İki cihazdaki VLAN 40'ı aynı Layer 2 ağ olarak uzat. Adı BILGI_ISLEM olsun. VNI ve gerekli loopback adreslerini sen belirle. Mevcut yapıyı bozmadan VXLAN EVPN kullan.</textarea>
+          <span class="intent-hint">Türkçe yazabilirsin · Teknik terim kullanmak zorunda değilsin</span>
+        </label>
+        <div class="intent-footer">
+          <div class="safety"><span>✓</span> Cihaza bağlanmaz · Config uygulamaz · Önce plan üretir</div>
+          <button class="primary" id="analyzeButton" type="button"><span>Planı hazırla</span><b>→</b></button>
+        </div>
+      </section>
+
+      <section class="results" id="results" hidden aria-live="polite">
+        <div class="result-header">
+          <div><p class="step">03 / ÇÖZÜM PLANI</p><h2>Önerilen yaklaşım</h2></div>
+          <span class="snapshot" id="snapshotLabel">Config snapshot · şimdi</span>
+        </div>
+
+        <div class="recommendation card">
+          <div class="recommend-main">
+            <div class="protocol-icon" id="protocolIcon">VX</div>
+            <div>
+              <div class="recommend-label">ÖNERİLEN ÇÖZÜM <span id="confidence">%94 güven</span></div>
+              <h3 id="solutionTitle">VXLAN EVPN</h3>
+              <p id="solutionReason">Aynı VLAN iki farklı leaf arasında Layer 2 olarak uzatılmak isteniyor. Underlay için mevcut OSPF yapısı korunuyor; overlay MP-BGP EVPN ile kuruluyor.</p>
+            </div>
+          </div>
+          <div class="plan-tags" id="planTags"></div>
+          <div class="warning" id="warningBox"><b>2 varsayım</b><span>VTEP adres havuzu ve VNI mevcut config ile çakışmayacak şekilde önerildi.</span></div>
+        </div>
+
+        <div class="alternatives card">
+          <div class="subhead"><div><h3>Alternatifler</h3><p>Aynı niyet için uygulanabilir yöntemler</p></div><span>Uygunluk</span></div>
+          <div id="alternativeList"></div>
+        </div>
+
+        <div class="topology-card card" id="topologyCard" hidden>
+          <div class="subhead"><div><h3>Campus topolojisi</h3><p>Core, access, uplink ve VLAN kapsamı</p></div><span id="topologySummary">2 CORE · 4 ACCESS</span></div>
+          <div id="topologyDiagram" class="topology-diagram" role="img" aria-label="Oluşturulan campus switch topolojisi"></div>
+          <div class="topology-legend" id="topologyLegend"></div>
+        </div>
+
+        <div class="cabling-plan card" id="cablingCard">
+          <div class="subhead">
+            <div><h3>Fiziksel bağlantı planı</h3><p>Config, port ve kablo eşleşmesi aynı değişiklik kimliğiyle üretildi</p></div>
+            <span id="cablePlanStatus">2 BAĞLANTI · ÖNERİ</span>
+          </div>
+          <div class="cable-table-wrap">
+            <table class="cable-table">
+              <thead><tr><th>Kablo</th><th>Kaynak</th><th>Port</th><th>Hedef</th><th>Port</th><th>Ortam</th><th>Durum</th></tr></thead>
+              <tbody id="cableRows"></tbody>
+            </table>
+          </div>
+          <div class="field-order">
+            <div><span class="field-icon">↗</span><div><strong>Saha uygulama emri</strong><small id="fieldOrderText">Kabloları belirtilen portlara takın ve LLDP doğrulamasını çalıştırın.</small></div></div>
+            <button type="button" id="fieldOrderButton">İş emrini göster</button>
+          </div>
+        </div>
+
+        <div class="output card">
+          <div class="output-top">
+            <div><h3>Değişiklik paketi</h3><p id="deltaCaption">Mevcut config üzerine uygulanacak minimum komutlar</p></div>
+            <div class="device-tabs" id="deviceTabs">
+              <button type="button" class="active" data-output-device="a">A · Cisco</button>
+              <button type="button" data-output-device="b">B · Aruba</button>
+            </div>
+          </div>
+          <nav class="output-nav" aria-label="Çıktı bölümleri">
+            <button type="button" class="active" data-panel="delta">Delta config</button>
+            <button type="button" data-panel="verify">Doğrulama</button>
+            <button type="button" data-panel="rollback">Rollback</button>
+            <button type="button" data-panel="analysis">Analiz</button>
+            <button type="button" data-panel="field">Saha emri</button>
+            <button type="button" class="hardening-only" data-panel="full" hidden>Tam hedef config</button>
+            <button type="button" class="hardening-only" data-panel="audit" hidden>Hardening raporu</button>
+          </nav>
+          <div class="code-toolbar"><span id="codeLabel">CISCO IOS-XE · DELTA</span><button id="copyButton" type="button">Kopyala</button></div>
+          <pre><code id="codeOutput"></code></pre>
+          <div class="apply-order">
+            <span>Uygulama sırası</span>
+            <ol id="applyOrder"></ol>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer><span>NetCube Intent · güvenli ağ değişikliği prototipi</span><span>Plan üretir, uygulama yapmaz.</span></footer>
+  </div>
+  <script src="devices.js?v=0.7.0"></script>
+  <script src="parser.js?v=0.7.0"></script>
+  <script src="fabric.js?v=0.7.0"></script>
+  <script src="app.js?v=0.7.0"></script>
+</body>
+</html>

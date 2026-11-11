@@ -1,0 +1,67 @@
+// Cihaz kataloğu: model başına yetenek matrisi.
+// caps: ospf, bgp, eigrp, static, vxlan (BGP EVPN VXLAN), dot1x (802.1X + MAB)
+// Değerler yayınlanmış ürün ailesi özelliklerine göre genel bir profildir; lisans
+// seviyesi (ör. Network Advantage), yazılım sürümü ve donanım revizyonu
+// üretimde mutlaka resmi dokümanla doğrulanmalıdır.
+window.NETCUBE_DEVICES = [
+  // ---------- Cisco IOS-XE ----------
+  { vendor: 'cisco', model: 'C9200L-48P-4G', os: 'IOS-XE', version: '17.12', roles: ['leaf', 'access'], uplinks: ['49', '50'],
+    caps: { ospf: true, bgp: false, eigrp: true, static: true, vxlan: false, dot1x: true },
+    note: 'Giriş seviyesi access. L3 özellikleri sınırlı; BGP ve VXLAN yok.' },
+  { vendor: 'cisco', model: 'C9300-48P', os: 'IOS-XE', version: '17.12', roles: ['leaf', 'access', 'distribution'], uplinks: ['49', '50'],
+    caps: { ospf: true, bgp: true, eigrp: true, static: true, vxlan: true, dot1x: true },
+    note: 'BGP EVPN VXLAN için Network Advantage lisansı gerekir.' },
+  { vendor: 'cisco', model: 'C9300X-24Y', os: 'IOS-XE', version: '17.12', roles: ['leaf', 'access', 'distribution'], uplinks: ['49', '50'],
+    caps: { ospf: true, bgp: true, eigrp: true, static: true, vxlan: true, dot1x: true },
+    note: 'Yüksek hızlı uplink; EVPN VXLAN için Network Advantage lisansı gerekir.' },
+  { vendor: 'cisco', model: 'C9500-24Y4C', os: 'IOS-XE', version: '17.12', roles: ['spine', 'core', 'distribution'], uplinks: ['25', '26'],
+    caps: { ospf: true, bgp: true, eigrp: true, static: true, vxlan: true, dot1x: false },
+    note: 'Core/spine sınıfı. Kullanıcı portu olarak 802.1X hedeflenmez.' },
+
+  // ---------- Aruba AOS-CX ----------
+  { vendor: 'aruba', model: 'CX 6200F', os: 'AOS-CX', version: '10.13', roles: ['leaf', 'access'], uplinks: ['49', '50'],
+    caps: { ospf: true, bgp: false, eigrp: false, static: true, vxlan: false, dot1x: true },
+    note: 'Access sınıfı. BGP ve VXLAN desteklenmez.' },
+  { vendor: 'aruba', model: 'CX 6300M', os: 'AOS-CX', version: '10.13', roles: ['leaf', 'access', 'distribution'], uplinks: ['49', '50'],
+    caps: { ospf: true, bgp: true, eigrp: false, static: true, vxlan: true, dot1x: true },
+    note: 'EVPN VXLAN destekli; EIGRP yok.' },
+  { vendor: 'aruba', model: 'CX 6400', os: 'AOS-CX', version: '10.13', roles: ['spine', 'core', 'distribution'], uplinks: ['1/1/1', '1/1/2'],
+    caps: { ospf: true, bgp: true, eigrp: false, static: true, vxlan: true, dot1x: false },
+    note: 'Modüler core/aggregation.' },
+  { vendor: 'aruba', model: 'CX 8325', os: 'AOS-CX', version: '10.13', roles: ['spine', 'leaf', 'core'], uplinks: ['49', '50'],
+    caps: { ospf: true, bgp: true, eigrp: false, static: true, vxlan: true, dot1x: false },
+    note: 'Veri merkezi leaf/spine; EVPN VXLAN birincil kullanım alanı.' },
+
+  // ---------- Huawei VRP ----------
+  { vendor: 'huawei', model: 'S5735-L48P4X', os: 'VRP', version: 'V200R021', roles: ['leaf', 'access'], uplinks: ['49', '50'],
+    caps: { ospf: true, bgp: false, eigrp: false, static: true, vxlan: false, dot1x: true },
+    note: 'Access sınıfı. BGP ve VXLAN desteklenmez.' },
+  { vendor: 'huawei', model: 'S5735-S48P4X', os: 'VRP', version: 'V200R022', roles: ['leaf', 'access', 'distribution'], uplinks: ['49', '50'],
+    caps: { ospf: true, bgp: true, eigrp: false, static: true, vxlan: false, dot1x: true },
+    note: 'BGP4 var; VXLAN yok.' },
+  { vendor: 'huawei', model: 'CloudEngine S6730-H', os: 'VRP', version: 'V200R023', roles: ['leaf', 'distribution', 'core'], uplinks: ['49', '50'],
+    caps: { ospf: true, bgp: true, eigrp: false, static: true, vxlan: true, dot1x: true },
+    note: 'EVPN VXLAN destekli kampüs switch.' },
+  { vendor: 'huawei', model: 'CloudEngine CE6866', os: 'VRP', version: 'V200R023', roles: ['spine', 'leaf', 'core'], uplinks: ['49', '50'],
+    caps: { ospf: true, bgp: true, eigrp: false, static: true, vxlan: true, dot1x: false },
+    note: 'Veri merkezi leaf/spine.' },
+  {vendor: "cisco", model: "C9200-48P", os: "IOS-XE", version: "17.12", roles: ["leaf", "access"], uplinks: ["49", "50"], caps: {ospf: true, bgp: false, eigrp: true, static: true, vxlan: false, dot1x: true}, note: "Access. Network Advantage ile sınırlı L3; BGP ve VXLAN yok."},
+  {vendor: "cisco", model: "C9300-24T", os: "IOS-XE", version: "17.12", roles: ["leaf", "access", "distribution"], uplinks: ["25", "26"], caps: {ospf: true, bgp: true, eigrp: true, static: true, vxlan: true, dot1x: true}, note: "EVPN VXLAN için Network Advantage lisansı gerekir."},
+  {vendor: "cisco", model: "C9300L-48P-4X", os: "IOS-XE", version: "17.12", roles: ["leaf", "access"], uplinks: ["49", "50"], caps: {ospf: true, bgp: true, eigrp: true, static: true, vxlan: false, dot1x: true}, note: "Kompakt access. BGP var; EVPN VXLAN yok."},
+  {vendor: "cisco", model: "C9500-48Y4C", os: "IOS-XE", version: "17.12", roles: ["spine", "core", "distribution"], uplinks: ["49", "50"], caps: {ospf: true, bgp: true, eigrp: true, static: true, vxlan: true, dot1x: false}, note: "Core/spine sınıfı."},
+  {vendor: "cisco", model: "C9400-SUP-1", os: "IOS-XE", version: "17.12", roles: ["core", "distribution"], uplinks: ["1/0/1", "1/0/2"], caps: {ospf: true, bgp: true, eigrp: true, static: true, vxlan: true, dot1x: true}, note: "Modüler şasi (Catalyst 9400); EVPN VXLAN için Network Advantage gerekir."},
+  {vendor: "cisco", model: "C9600-SUP-1", os: "IOS-XE", version: "17.12", roles: ["core", "spine"], uplinks: ["1/0/1", "1/0/2"], caps: {ospf: true, bgp: true, eigrp: true, static: true, vxlan: true, dot1x: false}, note: "Modüler core (Catalyst 9600)."},
+  {vendor: "aruba", model: "CX 6000", os: "AOS-CX", version: "10.13", roles: ["leaf", "access"], uplinks: ["25", "26"], caps: {ospf: false, bgp: false, eigrp: false, static: true, vxlan: false, dot1x: true}, note: "Giriş seviyesi access; yalnız statik routing."},
+  {vendor: "aruba", model: "CX 6100", os: "AOS-CX", version: "10.13", roles: ["leaf", "access"], uplinks: ["25", "26"], caps: {ospf: true, bgp: false, eigrp: false, static: true, vxlan: false, dot1x: true}, note: "Access; OSPF sınırlı, BGP ve VXLAN yok."},
+  {vendor: "aruba", model: "CX 6200M", os: "AOS-CX", version: "10.13", roles: ["leaf", "access"], uplinks: ["49", "50"], caps: {ospf: true, bgp: false, eigrp: false, static: true, vxlan: false, dot1x: true}, note: "Stackable access; BGP ve VXLAN yok."},
+  {vendor: "aruba", model: "CX 6300F", os: "AOS-CX", version: "10.13", roles: ["leaf", "access", "distribution"], uplinks: ["49", "50"], caps: {ospf: true, bgp: true, eigrp: false, static: true, vxlan: true, dot1x: true}, note: "EVPN VXLAN destekli; EIGRP yok."},
+  {vendor: "aruba", model: "CX 8100", os: "AOS-CX", version: "10.13", roles: ["spine", "leaf", "core"], uplinks: ["1/1/1", "1/1/2"], caps: {ospf: true, bgp: true, eigrp: false, static: true, vxlan: true, dot1x: false}, note: "Kompakt core/aggregation."},
+  {vendor: "aruba", model: "CX 8320", os: "AOS-CX", version: "10.13", roles: ["spine", "leaf", "core"], uplinks: ["49", "50"], caps: {ospf: true, bgp: true, eigrp: false, static: true, vxlan: true, dot1x: false}, note: "Veri merkezi leaf/spine."},
+  {vendor: "aruba", model: "CX 8360", os: "AOS-CX", version: "10.13", roles: ["spine", "leaf", "core"], uplinks: ["49", "50"], caps: {ospf: true, bgp: true, eigrp: false, static: true, vxlan: true, dot1x: false}, note: "Veri merkezi / kampüs core."},
+  {vendor: "aruba", model: "CX 9300", os: "AOS-CX", version: "10.13", roles: ["spine", "core"], uplinks: ["1/1/1", "1/1/2"], caps: {ospf: true, bgp: true, eigrp: false, static: true, vxlan: true, dot1x: false}, note: "Yüksek hızlı 100G/400G spine."},
+  {vendor: "huawei", model: "S5731-S48P4X", os: "VRP", version: "V200R022", roles: ["leaf", "access", "distribution"], uplinks: ["49", "50"], caps: {ospf: true, bgp: true, eigrp: false, static: true, vxlan: false, dot1x: true}, note: "BGP4 var; VXLAN yok."},
+  {vendor: "huawei", model: "S5732-H48XUM2CC", os: "VRP", version: "V200R022", roles: ["leaf", "distribution"], uplinks: ["49", "50"], caps: {ospf: true, bgp: true, eigrp: false, static: true, vxlan: true, dot1x: true}, note: "Multi-GE kampüs; VXLAN destekli."},
+  {vendor: "huawei", model: "CloudEngine S7706", os: "VRP", version: "V200R023", roles: ["core", "spine"], uplinks: ["1/0/1", "1/0/2"], caps: {ospf: true, bgp: true, eigrp: false, static: true, vxlan: true, dot1x: false}, note: "Modüler kampüs core."},
+  {vendor: "huawei", model: "CloudEngine CE6881", os: "VRP", version: "V200R023", roles: ["spine", "leaf", "core"], uplinks: ["49", "50"], caps: {ospf: true, bgp: true, eigrp: false, static: true, vxlan: true, dot1x: false}, note: "Veri merkezi leaf."},
+  {vendor: "huawei", model: "CloudEngine CE8851", os: "VRP", version: "V200R023", roles: ["spine", "leaf", "core"], uplinks: ["49", "50"], caps: {ospf: true, bgp: true, eigrp: false, static: true, vxlan: true, dot1x: false}, note: "Veri merkezi spine/leaf."}
+];
