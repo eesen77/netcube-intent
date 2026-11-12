@@ -4,7 +4,7 @@
 (function () {
   const KEY = 'netcube.jobs.v1';
   const MAX_JOBS = 50;
-  const MODULE_LABEL = { routing: 'Routing & Overlay', security: 'Secure Access', cabling: 'Fiziksel Plan', hardening: 'Switch Hardening', campus: 'Campus Builder', audit: 'Config Denetimi' };
+  const MODULE_LABEL = { routing: 'Routing & Overlay', security: 'Secure Access', cabling: 'Fiziksel Plan', hardening: 'Switch Hardening', campus: 'Campus Builder', audit: 'Config Denetimi', wan: 'WAN / VPN' };
   const Jobs = { restoring: false, list: [] };
 
   const esc = t => String(t == null ? '' : t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -32,7 +32,7 @@
       os: $('.os', c).value, version: $('.version', c).value, role: $('.role', c).value,
       ports: $('.ports', c).value, touched: Boolean($('.ports', c).dataset.touched), config: state.configs[c.dataset.device] || ''
     }));
-    return { mode: state.mode, module: state.module, forced: state.forced, fields, devices };
+    return { mode: state.mode, module: state.module, forced: state.forced, fields, devices, campus: (state.campus || []).map(r => ({ ...r })), campusTouched: Boolean(state.campusTouched), wan: (state.wan || []).map(r => ({ ...r })), wanTouched: Boolean(state.wanTouched) };
   }
 
   function saveCurrent() {
@@ -86,6 +86,8 @@
         if (d.config) { status.textContent = `Kayıtlı config · ${window.summarizeConfig(window.parseConfig(d.config))}`; status.classList.add('loaded'); }
         else { status.textContent = 'Henüz yüklenmedi'; status.classList.remove('loaded'); }
       });
+      if (snap.campus) { state.campus = snap.campus.map(r => ({ ...r })); state.campusTouched = Boolean(snap.campusTouched); renderCampusRows(); }
+      if (snap.wan) { state.wan = snap.wan.map(r => ({ ...r })); state.wanTouched = Boolean(snap.wanTouched); renderWanRows(); }
       setModule(snap.module); setMode(snap.mode);
       const f = snap.fields;
       Object.keys(f).filter(k => /Vendor$/.test(k)).forEach(k => { const el = document.getElementById(k); if (el) { el.value = f[k]; el.dispatchEvent(new Event('change')); } });

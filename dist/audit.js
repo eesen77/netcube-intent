@@ -13,7 +13,8 @@
     hardening: 'Yönetim düzlemi hardening',
     l2: 'Layer 2 koruma',
     dot1x: '802.1X / NAC hazırlığı',
-    routing: 'Routing güvenliği'
+    routing: 'Routing güvenliği',
+    vpn: 'VPN / IPsec'
   };
 
   // ---------- bağlam ----------
@@ -435,6 +436,68 @@
     fix: { cisco: () => ['key chain EIGRP-KEYS', ' key 1', '  key-string <EIGRP_KEY>', 'interface <ROUTED_INTERFACE>', ' ip authentication mode eigrp 100 md5', ' ip authentication key-chain eigrp 100 EIGRP-KEYS'] }
   });
 
+
+  // === VPN / IPsec ===
+  const hasVpn = c => (c.vendor === 'huawei' ? c.any(/^(?:ike|ipsec)\s/i) || c.any(/^interface\s+Tunnel/i) : c.any(/^crypto\s+(?:ikev2|isakmp|ipsec|map)\b/i) || c.any(/^interface\s+Tunnel/i));
+  const naVpn = fn => c => (hasVpn(c) ? fn(c) : null);
+  const tunnels = c => c.blocksHead(/^interface\s+Tunnel/i);
+  rule('V01', 'vpn', 'high', 'Zayıf IKE/IPsec kriptografisi kullanılıyor', 'DES/3DES, MD5, SHA-1 ve DH group 1/2/5 günümüzde yetersizdir.', {
+    test: {
+      cisco: naVpn(c => {
+        const strong = c.count(/^(?:encryption|encr)\s+(?:des|3des)\b/i) + c.count(/^(?:hash|integrity)\s+md5\b/i) + c.count(/^group\s+(?:1|2)\b/i) + c.count(/esp-(?:3?des|md5-hmac)/i);
+        const weak = c.count(/^(?:integrity\s+sha1|hash\s+sha)\b/i) + c.count(/^group\s+5\b/i) + c.count(/esp-sha-hmac/i);
+        return strong ? bad(`${strong} zayıf kripto satırı (DES/3DES/MD5/DH 1-2)`, 'high') : weak ? bad(`${weak} eski kripto satırı (SHA-1/DH 5)`, 'medium') : ok();
+      }),
+      aruba: () => null,
+      huawei: naVpn(c => { const n = c.count(/encryption-algorithm\s+(?:des|3des)\b/i) + c.count(/authentication-algorithm\s+md5\b/i) + c.count(/dh\s+group(?:1|2)\b/i) + c.count(/esp\s+(?:encryption|authentication)-algorithm\s+(?:des|3des|md5)\b/i); return n ? bad(`${n} zayıf kripto satırı`, 'high') : ok(); })
+    },
+    fix: { cisco: () => ['crypto ikev2 proposal <NAME>', ' encryption aes-cbc-256', ' integrity sha256', ' group 14', 'crypto ipsec transform-set <NAME> esp-aes 256 esp-sha256-hmac'], huawei: () => ['ike proposal <ID>', ' encryption-algorithm aes-256', ' dh group14', ' authentication-algorithm sha2-256', ' integrity-algorithm hmac-sha2-256'] }
+  });
+  rule('V02', 'vpn', 'medium', 'IKEv1 kullanılıyor (IKEv2 önerilir)', 'IKEv1 (özellikle aggressive mode) IKEv2\'ye göre daha zayıftır ve daha az özellik sunar.', {
+    test: {
+      cisco: naVpn(c => (c.any(/^crypto\s+isakmp\s+policy\b/i) ? bad('crypto isakmp (IKEv1) politikası var') : ok())),
+      aruba: () => null,
+      huawei: naVpn(c => (c.any(/exchange-mode\s+aggressive/i) ? bad('aggressive mode', 'high') : c.any(/^ike\s+peer\s+\S+\s+v1\b|^ike\s+peer\s+\S+\s*$/i) ? bad('IKEv1 peer var') : ok()))
+    },
+    fix: { cisco: () => ['! IKEv1 politikalarını IKEv2 proposal/policy/profile ile değiştirin', 'crypto ikev2 proposal <NAME>', ' encryption aes-cbc-256', ' integrity sha256', ' group 14'], huawei: () => ['ike peer <NAME> v2', ' ike-proposal <ID>'] }
+  });
+  rule('V03', 'vpn', 'low', 'Pre-shared key kullanılıyor (sertifika önerilir)', 'PSK dağıtımı ve yenilenmesi zordur; PKI/sertifika kimlik doğrulaması ölçeklenir ve daha güvenlidir.', {
+    test: { cisco: naVpn(c => { const n = c.count(/pre-shared-key/i) + c.count(/^crypto isakmp key\b/i); return n ? bad(`${n} PSK tanımı`) : ok(); }), aruba: () => null, huawei: naVpn(c => (c.any(/pre-shared-key/i) ? bad(`${c.count(/pre-shared-key/i)} PSK tanımı`) : ok())) },
+    fix: { cisco: () => ['! Mümkünse: crypto pki trustpoint <TRUSTPOINT> ve ikev2 profile içinde authentication ... rsa-sig'], huawei: () => ['! Mümkünse: pki entity/domain tanımlayıp ike peer içinde certificate kimlik doğrulaması kullanın'] }
+  });
+  rule('V04', 'vpn', 'critical', 'GRE tüneli IPsec koruması olmadan çalışıyor', 'Korumasız GRE trafiği açık metin taşır ve sahte tünel paketlerine açıktır.', {
+    test: {
+      cisco: naVpn(c => { const n = tunnels(c).filter(b => !c.bhas(b, /^tunnel mode ipsec\b/i) && !c.bhas(b, /^tunnel protection ipsec\b/i)).length; return n ? bad(`${n} tünelde tunnel protection yok`) : ok(); }),
+      aruba: () => null,
+      huawei: naVpn(c => { const gre = tunnels(c).filter(b => c.bhas(b, /^tunnel-protocol\s+gre\b/i)).length; return gre && !c.any(/^ipsec\s+policy\b/i) ? bad(`${gre} GRE tüneli, ipsec policy yok`) : ok(); })
+    },
+    fix: { cisco: () => ['interface Tunnel<N>', ' tunnel protection ipsec profile <IPSEC_PROFILE>'], huawei: () => ['! GRE trafiğini eşleyen ACL ile ipsec policy tanımlayıp WAN arayüzüne uygulayın', 'ipsec policy <NAME> <SEQ> isakmp', ' security acl <ACL>'] }
+  });
+  rule('V05', 'vpn', 'high', 'NHRP kimlik doğrulaması yok', 'Kimliği doğrulanmayan NHRP kaydı ile yetkisiz bir router DMVPN bulutuna katılabilir.', {
+    test: { cisco: naVpn(c => { const n = tunnels(c).filter(b => c.bhas(b, /^ip nhrp network-id\b/i) && !c.bhas(b, /^ip nhrp authentication\b/i)).length; return n ? bad(`${n} DMVPN tünelinde ip nhrp authentication yok`) : ok(); }), aruba: () => null, huawei: () => null },
+    fix: { cisco: () => ['interface Tunnel<N>', ' ip nhrp authentication <NHRP_KEY>'] }
+  });
+  rule('V06', 'vpn', 'low', 'Tünel MTU / TCP MSS ayarlı değil', 'Tünel başlığı yüzünden fragmentasyon ve performans sorunları oluşur.', {
+    test: {
+      cisco: naVpn(c => { const n = tunnels(c).filter(b => !c.bhas(b, /^ip tcp adjust-mss\b/i) || !c.bhas(b, /^ip mtu\b/i)).length; return n ? bad(`${n} tünelde ip mtu / adjust-mss eksik`) : ok(); }),
+      aruba: () => null,
+      huawei: naVpn(c => { const n = tunnels(c).filter(b => !c.bhas(b, /^(?:mtu|tcp adjust-mss)\b/i)).length; return n ? bad(`${n} tünelde mtu / adjust-mss eksik`) : ok(); })
+    },
+    fix: { cisco: () => ['interface Tunnel<N>', ' ip mtu 1400', ' ip tcp adjust-mss 1360'], huawei: () => ['interface Tunnel<N>', ' mtu 1400', ' tcp adjust-mss 1360'] }
+  });
+  rule('V07', 'vpn', 'medium', 'Dead Peer Detection (DPD) tanımlı değil', 'DPD olmadan ölü peer\'e giden SA\'lar saatlerce askıda kalır ve trafik kaybolur.', {
+    test: { cisco: naVpn(c => c.any(/^dpd\s+\d+\s+\d+/i) || c.any(/^crypto isakmp keepalive\b/i)), aruba: () => null, huawei: naVpn(c => c.any(/^dpd\s+type\b/i)) },
+    fix: { cisco: () => ['crypto ikev2 profile <PROFILE>', ' dpd 30 5 on-demand'], huawei: () => ['ike peer <NAME> v2', ' dpd type periodic', ' dpd idle-time 30'] }
+  });
+  rule('V08', 'vpn', 'medium', 'IKE peer herkese açık (0.0.0.0)', 'Joker peer/kimlik eşleşmesi, PSK\'yı bilen herkesin tünel kurmasına izin verir; DMVPN\'de bilinçli bir seçim olabilir.', {
+    test: { cisco: naVpn(c => (c.any(/^address\s+0\.0\.0\.0\b/i) || c.any(/^match identity remote address\s+0\.0\.0\.0\b/i) || c.any(/^crypto isakmp key\s+\S+\s+address\s+0\.0\.0\.0\b/i) ? bad('0.0.0.0 peer/kimlik eşleşmesi') : ok())), aruba: () => null, huawei: () => null },
+    fix: { cisco: () => ['! Mümkünse spoke WAN adres aralığıyla sınırlayın: match identity remote address <WAN_RANGE> <MASK>'] }
+  });
+  rule('V09', 'vpn', 'medium', 'Crypto ACL çok geniş (permit ip any any)', 'Tüm trafiği şifreleme kapsamına almak istenmeyen yönlendirme ve performans sorunlarına yol açar.', {
+    test: { cisco: naVpn(c => (c.any(/^crypto map\b/i) && c.any(/(?:^|\s)permit\s+ip\s+any\s+any\b/i) ? bad('permit ip any any') : ok())), aruba: () => null, huawei: () => null },
+    fix: { cisco: () => ['ip access-list extended <CRYPTO_ACL>', ' no permit ip any any', ' permit ip <LOCAL_LAN> <WILDCARD> <REMOTE_LAN> <WILDCARD>'] }
+  });
+
   // Başarılı/uygulanamaz satırlarında kullanılan olumlu başlıklar
   const OK_TITLE = {
     H01: 'SSH ile yönetim etkin', H02: 'Telnet kapalı, yalnızca SSH', H03: 'HTTP yönetim arayüzü kapalı', H04: 'Merkezi AAA yapılandırılmış',
@@ -449,7 +512,9 @@
     D05: 'RADIUS CoA yapılandırılmış', D06: '802.1X erişim portlarında etkin', D07: 'MAB yedeği tanımlı', D08: 'Çoklu cihaz (host-mode/client-limit) ayarlı',
     D09: 'Critical VLAN/fail-open politikası tanımlı', D10: 'Periyodik reauth ayarlı', D11: 'Portlar kapalı (closed) modda',
     R01: 'OSPF kimlik doğrulaması açık', R02: 'OSPF passive-interface default kullanılıyor', R03: 'BGP komşu parolası tanımlı', R04: 'BGP maximum-prefix tanımlı',
-    R05: 'BGP TTL güvenliği açık', R06: 'EIGRP kimlik doğrulaması açık'
+    R05: 'BGP TTL güvenliği açık', R06: 'EIGRP kimlik doğrulaması açık',
+    V01: 'IKE/IPsec kriptografisi güçlü', V02: 'IKEv2 kullanılıyor', V03: 'Sertifika tabanlı kimlik doğrulama', V04: 'GRE tünelleri IPsec ile korunuyor', V05: 'NHRP kimlik doğrulaması açık',
+    V06: 'Tünel MTU / TCP MSS ayarlı', V07: 'Dead Peer Detection (DPD) tanımlı', V08: 'IKE peer kısıtlı', V09: 'Crypto ACL dar kapsamlı'
   };
 
   // ---------- değerlendirme ----------
@@ -499,9 +564,9 @@
   }
 
   const VERIFY = {
-    cisco: { hardening: ['show ip ssh', 'show running-config | section line vty', 'show aaa servers', 'show ntp status', 'show logging | include Log Host|Trap'], l2: ['show spanning-tree summary', 'show ip dhcp snooping', 'show ip arp inspection', 'show interfaces trunk', 'show interfaces status | include notconnect'], dot1x: ['show dot1x all summary', 'show authentication sessions', 'show aaa servers', 'show running-config | section aaa server radius dynamic-author'], routing: ['show ip ospf interface | include Authentication', 'show ip bgp neighbors | include password|ttl'] },
-    aruba: { hardening: ['show ssh server', 'show aaa authentication', 'show ntp status', 'show logging'], l2: ['show spanning-tree summary', 'show dhcpv4-snooping', 'show arp inspection'], dot1x: ['show aaa authentication port-access interface all client-status', 'show radius-server', 'show port-access clients'], routing: ['show ip ospf interface', 'show bgp ipv4 unicast summary'] },
-    huawei: { hardening: ['display ssh server status', 'display aaa configuration', 'display ntp-service status', 'display logbuffer'], l2: ['display stp brief', 'display dhcp snooping', 'display arp anti-attack configuration check user-bind'], dot1x: ['display dot1x', 'display access-user', 'display radius-server configuration'], routing: ['display ospf interface', 'display bgp peer'] }
+    cisco: { hardening: ['show ip ssh', 'show running-config | section line vty', 'show aaa servers', 'show ntp status', 'show logging | include Log Host|Trap'], l2: ['show spanning-tree summary', 'show ip dhcp snooping', 'show ip arp inspection', 'show interfaces trunk', 'show interfaces status | include notconnect'], dot1x: ['show dot1x all summary', 'show authentication sessions', 'show aaa servers', 'show running-config | section aaa server radius dynamic-author'], routing: ['show ip ospf interface | include Authentication', 'show ip bgp neighbors | include password|ttl'], vpn: ['show crypto ikev2 sa', 'show crypto ipsec sa', 'show dmvpn detail', 'show crypto map', 'show running-config | section crypto|interface Tunnel'] },
+    aruba: { hardening: ['show ssh server', 'show aaa authentication', 'show ntp status', 'show logging'], l2: ['show spanning-tree summary', 'show dhcpv4-snooping', 'show arp inspection'], dot1x: ['show aaa authentication port-access interface all client-status', 'show radius-server', 'show port-access clients'], routing: ['show ip ospf interface', 'show bgp ipv4 unicast summary'], vpn: [] },
+    huawei: { hardening: ['display ssh server status', 'display aaa configuration', 'display ntp-service status', 'display logbuffer'], l2: ['display stp brief', 'display dhcp snooping', 'display arp anti-attack configuration check user-bind'], dot1x: ['display dot1x', 'display access-user', 'display radius-server configuration'], routing: ['display ospf interface', 'display bgp peer'], vpn: ['display ike sa', 'display ipsec sa', 'display ipsec policy', 'display interface tunnel'] }
   };
   function verifyText(result) {
     const v = result.vendor, cm = COMMENT[v];
@@ -537,5 +602,27 @@
     return L.join('\n');
   }
 
-  window.NETCUBE_AUDIT = { PROFILES, SEV, RULES, run, fixScript, verifyText, rollbackText, report };
+  // Config metninden üretici, rol ve hostname tahmini (yükleme sonrası otomatik doldurma için)
+  function detect(text) {
+    const t = text || '';
+    const score = { cisco: 0, aruba: 0, huawei: 0 };
+    const hit = (v, re, w) => { if (re.test(t)) score[v] += w || 1; };
+    hit('huawei', /^sysname\s/m, 4); hit('huawei', /^undo\s/m, 2); hit('huawei', /^user-interface\s/m, 3); hit('huawei', /^return\s*$/m, 1);
+    hit('huawei', /^info-center\s/m, 2); hit('huawei', /^snmp-agent\s/m, 2); hit('huawei', /port link-type\b/, 2); hit('huawei', /^stelnet\s/m, 2); hit('huawei', /^interface\s+(?:Gigabit|XGigabit|MultiGE|10GE|25GE|40GE|100GE)\S*/m, 1);
+    hit('aruba', /ArubaOS-CX/i, 5); hit('aruba', /^interface\s+\d+\/\d+\/\d+/m, 4); hit('aruba', /^\s*vlan access\s+\d+/m, 3); hit('aruba', /aaa authentication port-access/, 3);
+    hit('aruba', /^ssh server vrf/m, 2); hit('aruba', /^user\s+\S+\s+group\s/m, 2); hit('aruba', /^snmpv3\s/m, 2); hit('aruba', /^dhcpv4-snooping/m, 2);
+    hit('cisco', /^hostname\s/m, 1); hit('cisco', /^service\s/m, 2); hit('cisco', /^line vty/m, 3); hit('cisco', /^ip ssh\b/m, 2); hit('cisco', /^enable (?:secret|password)/m, 3);
+    hit('cisco', /^aaa new-model/m, 2); hit('cisco', /switchport mode\b/, 3); hit('cisco', /^interface\s+(?:Fast|Gigabit|TenGigabit|TwentyFiveGig|FortyGigabit|HundredGig)\S*/m, 2); hit('cisco', /^spanning-tree mode\b/m, 2);
+    const vendor = Object.keys(score).sort((a, b) => score[b] - score[a])[0];
+    const host = (t.match(/^(?:hostname|sysname)\s+(\S+)/m) || [])[1] || '';
+    let version = '';
+    if (vendor === 'cisco') version = (t.match(/^version\s+(\S+)/m) || [])[1] || '';
+    else if (vendor === 'aruba') version = (t.match(/ArubaOS-CX\s+\S*?(\d+\.\d+(?:\.\d+)?)/i) || [])[1] || '';
+    else version = (t.match(/^!?\s*Software Version\s+(\S+)/mi) || [])[1] || '';
+    const ctx = makeCtx({ vendor, role: 'leaf', config: t }, {});
+    const role = ctx.accessPorts.length > 0 ? 'leaf' : 'spine';
+    return { vendor, role, hostname: host, version, scores: score, accessPorts: ctx.accessPorts.length };
+  }
+
+  window.NETCUBE_AUDIT = { detect, PROFILES, SEV, RULES, run, fixScript, verifyText, rollbackText, report };
 })();

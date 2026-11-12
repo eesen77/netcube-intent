@@ -29,10 +29,12 @@
     const caps = {}; p.idx.forEach((n, i) => { caps[n] = depth < 4 ? trLine(m[i + 1], depth + 1) : m[i + 1]; });
     return p.val.replace(/\{(\d+)\}/g, (_, n) => (caps[n] !== undefined ? caps[n] : ''));
   }
+  const TR_STOP = /\b(ve|veya|için|ile|yok|değil|olarak|gerekir|tanımlı|etkin|kapalı|açık|cihaz|profil|durumu|mevcut|yeni|kullan|önerildi|seçin|eksik|hazırla|sunucu|komut|bulgu)\b/i;
+  const looksTurkish = x => /[çğıöşüÇĞİÖŞÜ]/.test(x) || TR_STOP.test(x);
   function splitJoin(s, sep, depth, joiner, strict) {
     const parts = s.split(sep); if (parts.length < 2) return null;
     const t = parts.map(x => trLine(x, depth + 1));
-    if (strict && parts.some((x, i) => t[i] === x.trim() && /[A-Za-zÇĞİÖŞÜçğıöşü]{2,}/.test(x))) return null;
+    if (strict && parts.some((x, i) => t[i] === x.trim() && looksTurkish(x))) return null;
     const out = t.join(joiner);
     return out !== s ? out : null;
   }

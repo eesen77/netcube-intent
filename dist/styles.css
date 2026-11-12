@@ -236,3 +236,39 @@ body.dark .sev-ok { background: #1f3a29; color: #9fe0b5; }
 .lang-switch { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; height: 36px; }
 .lang-switch button { border: 0; background: transparent; color: var(--muted); padding: 0 12px; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
 .lang-switch button.active { background: var(--accent); color: #18201c; }
+
+/* Modüle göre cihaz kartı */
+.audit-detect { display: none; margin-top: 12px; align-items: center; gap: 12px; flex-wrap: wrap; }
+.detect-chip { font-size: 12px; color: var(--muted); background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
+.device-grid[data-module="audit"] .audit-detect { display: flex; }
+.device-grid[data-module="audit"] .form-grid { display: none; }
+.device-grid[data-module="audit"] .device-card.show-override .form-grid { display: grid; }
+.device-grid[data-module="audit"] .f-model, .device-grid[data-module="audit"] .f-os, .device-grid[data-module="audit"] .f-version, .device-grid[data-module="audit"] .f-ports,
+.device-grid[data-module="audit"] .custom-model, .device-grid[data-module="audit"] .cap-box { display: none !important; }
+.device-grid[data-module="audit"] .config-zone { margin-top: 0; padding-top: 0; border-top: 0; }
+.device-grid[data-module="hardening"] .f-role, .device-grid[data-module="hardening"] .f-ports,
+.device-grid[data-module="security"] .f-role, .device-grid[data-module="security"] .f-ports,
+.device-grid[data-module="hardening"] .cap-box, .device-grid[data-module="security"] .cap-box { display: none !important; }
+
+/* Campus cihaz envanteri */
+.campus-inventory { grid-column: 1 / -1; display: grid; gap: 12px; }
+.inv-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+.inv-head small { display: block; color: var(--muted); margin-top: 3px; font-size: 12px; max-width: 520px; }
+.inv-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.inv-actions .text-button:disabled { opacity: .4; cursor: not-allowed; }
+.inv-count { font-size: 12px; color: var(--muted); font-weight: 600; }
+.campus-rows { display: grid; gap: 8px; }
+.campus-row { display: grid; grid-template-columns: 64px 1fr 1.4fr 1fr 1fr auto auto; gap: 10px; align-items: end; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; background: var(--surface); }
+.campus-row label { display: grid; gap: 4px; font-size: 11px; color: var(--muted); }
+.campus-row .cr-custom-wrap { grid-column: 3 / 5; }
+.role-badge { align-self: center; text-align: center; font-size: 10px; font-weight: 800; letter-spacing: .04em; padding: 6px 0; border-radius: 8px; }
+.role-badge.core { background: var(--navy); color: #fff; }
+.role-badge.access { background: var(--surface-2); color: var(--muted); border: 1px solid var(--line); }
+.cr-remove { border: 1px solid var(--line); background: transparent; color: var(--muted); width: 30px; height: 30px; border-radius: 8px; cursor: pointer; align-self: center; }
+.cr-remove:hover { color: var(--danger); border-color: var(--danger); }
+@media (max-width: 900px) { .campus-row { grid-template-columns: 1fr 1fr; } .campus-row .role-badge { grid-column: 1 / -1; } .campus-row .cr-custom-wrap { grid-column: 1 / -1; } }
+
+/* WAN / VPN */
+.wan-row { grid-template-columns: 64px 1fr 1.3fr 1fr 1fr 1fr 1fr 1fr auto; }
+.wan-row .cr-custom-wrap { grid-column: 3 / 5; }
+@media (max-width: 900px) { .wan-row { grid-template-columns: 1fr 1fr; } }

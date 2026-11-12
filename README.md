@@ -13,12 +13,15 @@
 ### What it does
 
 - **Intent to plan:** write the change you want ("extend VLAN 120 across the fabric, name it SERVERS, use VXLAN EVPN"); the tool picks a protocol and produces the plan.
-- **Device catalog with capability matrix:** 31 models (Cisco IOS-XE, Aruba AOS-CX, Huawei VRP). If a selected device cannot do the requested protocol (OSPF, eBGP, EIGRP, VXLAN EVPN, 802.1X), it recommends a supported alternative and explains why.
+- **Device catalog with capability matrix:** 40 models, including routers (Cisco IOS-XE, Aruba AOS-CX, Huawei VRP). If a selected device cannot do the requested protocol (OSPF, eBGP, EIGRP, VXLAN EVPN, 802.1X), it recommends a supported alternative and explains why.
 - **Multi-device fabrics (2–6 devices):** spine/leaf (spine = route-reflector) or full mesh, with `/30` link addressing, a cabling plan, a field work order and a topology diagram.
 - **Existing config awareness:** upload a running-config; it parses VLANs, interfaces, OSPF, BGP and VNIs, reuses your OSPF process and BGP AS, and avoids VNI / loopback / VLAN clashes.
 - **Complete change package per device:** delta config, verification commands, rollback and an analysis report.
-- **Config audit (bring your own config):** upload a running-config and get a security score, prioritized findings and fix commands with placeholders for secrets. 46 rules across four profiles — management-plane hardening, Layer 2 protection, 802.1X / NAC readiness and routing security — for Cisco IOS-XE, Aruba AOS-CX and Huawei VRP. The same engine also reports on uploaded configs in the Switch Hardening and Secure Access modules.
-- **More modules:** switch hardening baseline, 802.1X / MAB / RADIUS access planning, campus builder (core/access inventory, VLANs, STP, DHCP snooping, DAI, IP source guard).
+- **Config audit (bring your own config):** just upload a running-config. Vendor, OS version, hostname and role (access vs. core) are detected from the file, so there is nothing to select. You get a security score, prioritized findings and fix commands with placeholders for secrets: 55 rules across management-plane hardening, Layer 2 protection, 802.1X / NAC readiness, routing security and VPN / IPsec, for Cisco IOS-XE, Aruba AOS-CX and Huawei VRP. The same engine also reports on uploaded configs in the Switch Hardening and Secure Access modules.
+- **Campus Builder (Packet Tracer style):** add the devices you are going to install one by one — core or access, vendor, model, hostname, management IP and port count — and mix vendors freely. Configs are generated **per device** and **follow your intent**: write "802.1X and MAB, DHCP server on the core, OSPF, default route via 172.16.0.1, VLAN 10 USERS, VLAN 30 GUEST" and those features, VLANs and (while the inventory is untouched) device counts are applied; say "no hardening" and the management hardening block is skipped. You also get a port plan, a topology diagram with real hostnames and a design report.
+- **WAN / VPN (routers):** add hub and spoke routers one by one (vendor, model, hostname, WAN IP, LAN subnet) and describe the VPN you want. **DMVPN Phase 2/3** (mGRE, NHRP, IPsec profile, dual hub, EIGRP / OSPF / BGP overlay), **site-to-site IPsec** (IKEv2 VTI or crypto map / ipsec policy) and **GRE over IPsec** are generated per router, with a tunnel plan, topology and design report. If a router cannot do what you asked (for example DMVPN on Huawei AR) the tool falls back to a supported alternative and says why; mixed Cisco/Huawei links use policy-based IPsec. Pre-shared keys and NHRP keys are placeholders. Writing "DMVPN" or "IPsec VPN" in the Routing module switches to this module automatically.
+- **Device cards fit the module:** the audit module shows only a config upload, hardening and secure access show vendor/model/version and upload, routing and cabling show the full card.
+- **More modules:** switch hardening baseline and 802.1X / MAB / RADIUS access planning.
 - **English and Turkish:** switch the language with the TR / EN button; the intent text, results, reports and fix comments follow the selected language.
 - **Saved jobs:** every plan is stored with its inputs; reopen, delete, export or import jobs as JSON.
 - **Private by design:** everything runs locally; nothing is uploaded.
@@ -65,12 +68,14 @@ npm run build:win         # both
 - The audit rules are general good practice and are evaluated from the config text only; they cannot see runtime state, licensing or hardware, so weigh the findings against your own standard.
 - The English UI is a translation layer over Turkish source text. If you spot a string that stayed Turkish, please open an issue.
 - The capability matrix reflects general product-family information. License tier (for example Network Advantage), software version and hardware revision can change what a device supports: always check the vendor documentation.
+- Campus configs for Aruba AOS-CX and Huawei VRP are best-effort templates (VRRP, DHCP, 802.1X, port groups); the Cisco IOS-XE output is the most complete. Always check interface names and syntax against your platform.
+- WAN / VPN: DMVPN is generated for Cisco IOS-XE only (Huawei DSVPN is not implemented); IKEv2 with pre-shared keys is the default, certificates (PKI) are only recommended in the notes. Aruba is not offered for routers. Exact syntax, licensing (Security K9 / throughput) and interface names must be verified per platform.
 - Link interface names are derived from port numbers (for example `GigabitEthernet1/0/49`) and may differ from your platform's real names; the output flags this.
 - Only IOS-XE, AOS-CX and VRP syntax is generated. NX-OS, Junos and others are not supported yet.
 
 ### Roadmap ideas
 
-English UI, more models and vendors, richer config parsing and diffing, config export bundles (ZIP), automated tests.
+Huawei DSVPN, FlexVPN and certificate-based IPsec, more router models, more models and vendors, richer config parsing and diffing, config export bundles (ZIP), automated tests.
 
 Feedback and issues are welcome: tell me which vendor, platform or protocol you need next.
 
@@ -85,13 +90,16 @@ NetCube Intent is not affiliated with, endorsed by or sponsored by Cisco, Hewlet
 ### Ne yapar
 
 - **Niyetten plana:** Yapmak istediğin değişikliği Türkçe yaz; araç protokolü seçer ve planı üretir.
-- **Yetenek matrisli cihaz kataloğu:** 31 model (Cisco IOS-XE, Aruba AOS-CX, Huawei VRP). Seçilen cihaz istenen protokolü desteklemiyorsa (OSPF, eBGP, EIGRP, VXLAN EVPN, 802.1X) desteklenen bir alternatifi nedenini açıklayarak önerir.
+- **Yetenek matrisli cihaz kataloğu:** 40 model, router'lar dahil (Cisco IOS-XE, Aruba AOS-CX, Huawei VRP). Seçilen cihaz istenen protokolü desteklemiyorsa (OSPF, eBGP, EIGRP, VXLAN EVPN, 802.1X) desteklenen bir alternatifi nedenini açıklayarak önerir.
 - **Çoklu cihaz (2–6):** spine/leaf (spine = route-reflector) veya mesh; `/30` link adresleri, kablo planı, saha iş emri ve topoloji çizimi.
 - **Mevcut config'i anlar:** running-config yükle; VLAN, arayüz, OSPF, BGP ve VNI okunur, mevcut OSPF process ve BGP AS kullanılır, VNI / loopback / VLAN çakışmaları önlenir.
 - **Cihaz başına tam değişiklik paketi:** delta config, doğrulama komutları, rollback ve analiz raporu.
-- **Config denetimi (kendi config'in):** running-config yükle; güvenlik puanı, öncelikli bulgular ve secret'lar için yer tutuculu düzeltme komutları al. Dört profilde 46 kural: yönetim düzlemi hardening, Layer 2 koruma, 802.1X / NAC hazırlığı ve routing güvenliği (Cisco IOS-XE, Aruba AOS-CX, Huawei VRP). Aynı motor Switch Hardening ve Secure Access modüllerinde yüklenen config'leri de raporlar.
+- **Config denetimi (kendi config'in):** running-config yükle; güvenlik puanı, öncelikli bulgular ve secret'lar için yer tutuculu düzeltme komutları al. Beş profilde 55 kural: yönetim düzlemi hardening, Layer 2 koruma, 802.1X / NAC hazırlığı, routing güvenliği ve VPN / IPsec (Cisco IOS-XE, Aruba AOS-CX, Huawei VRP). Aynı motor Switch Hardening ve Secure Access modüllerinde yüklenen config'leri de raporlar.
 - **Türkçe ve İngilizce:** TR / EN düğmesiyle dil değişir; niyet metni, sonuçlar, raporlar ve düzeltme yorumları seçilen dili izler.
-- **Diğer modüller:** switch hardening baseline, 802.1X / MAB / RADIUS planı, Campus Builder.
+- **Campus Builder (Packet Tracer tarzı):** kuracağın cihazları tek tek ekle: core/access, üretici, model, hostname, yönetim IP'si, port sayısı; üreticileri karıştırabilirsin. Config'ler **cihaz bazında** ve **niyetine göre** üretilir: "802.1X ve MAB olsun, DHCP sunucusu core'da, OSPF çalışsın, varsayılan rota 172.16.0.1 üzerinden, VLAN 10 USERS, VLAN 30 GUEST" yazarsan bu özellikler, VLAN'lar ve (envanter elle değiştirilmediyse) cihaz sayıları uygulanır; "hardening olmasın" dersen yönetim hardening bloğu atlanır. Port planı, gerçek hostname'li topoloji çizimi ve tasarım raporu da çıkar.
+- **WAN / VPN (router'lar):** hub ve spoke router'larını tek tek ekle (üretici, model, hostname, WAN IP, LAN alt ağı) ve istediğin VPN'i yaz. **DMVPN Phase 2/3** (mGRE, NHRP, IPsec profili, çift hub, EIGRP / OSPF / BGP overlay), **site-to-site IPsec** (IKEv2 VTI veya crypto map / ipsec policy) ve **GRE over IPsec** her router için üretilir; tünel planı, topoloji ve tasarım raporu da çıkar. Router istediğin şeyi desteklemiyorsa (örn. Huawei AR'da DMVPN) desteklenen alternatife düşülür ve nedeni söylenir; Cisco/Huawei karışık bağlantılarda politika tabanlı IPsec kullanılır. PSK ve NHRP anahtarları yer tutucudur. Routing modülüne "DMVPN" veya "IPsec VPN" yazmak otomatik olarak bu modüle geçirir.
+- **Kart modüle uyar:** denetim modülünde yalnızca config yükleme görünür; hardening ve secure access'te üretici/model/sürüm ve yükleme; routing ve kablolamada tam kart.
+- **Diğer modüller:** switch hardening baseline ve 802.1X / MAB / RADIUS planı.
 - **Kayıtlı işler:** her plan girdileriyle saklanır; tekrar açılır, silinir, JSON olarak dışa/içe aktarılır.
 - **Gizlilik:** her şey yerelde çalışır, hiçbir veri yüklenmez.
 

@@ -27,7 +27,7 @@ const $$ = (s, root = document) => [...root.querySelectorAll(s)];
 
 const CATALOG = window.NETCUBE_DEVICES || [];
 const CUSTOM_MODEL = '__custom';
-const PROTO_NAME = { ospf: 'OSPF', bgp: 'eBGP', eigrp: 'EIGRP', static: 'Static route', vxlan: 'VXLAN EVPN', dot1x: '802.1X / MAB' };
+const PROTO_NAME = { ospf: 'OSPF', bgp: 'eBGP', eigrp: 'EIGRP', static: 'Static route', vxlan: 'VXLAN EVPN', dot1x: '802.1X / MAB', dmvpn: 'DMVPN', ipsec: 'IPsec', gre: 'GRE' };
 const FALLBACKS = { vxlan: ['ospf', 'bgp', 'static'], eigrp: ['ospf', 'bgp', 'static'], bgp: ['ospf', 'static'], ospf: ['bgp', 'static'], static: [] };
 
 function catalogFor(vendor) { return CATALOG.filter(d => d.vendor === vendor); }
@@ -35,7 +35,7 @@ function findDevice(vendor, model) { return CATALOG.find(d => d.vendor === vendo
 function deviceCaps(info) {
   const d = findDevice(info.vendor, info.model);
   if (d) return { ...d.caps, known: true, note: d.note };
-  return { ospf: true, bgp: true, eigrp: info.vendor === 'cisco', static: true, vxlan: true, dot1x: true, known: false, note: 'Özel model: yetenekler doğrulanamadı, varsayım kullanıldı.' };
+  return { ospf: true, bgp: true, eigrp: info.vendor === 'cisco', static: true, vxlan: true, dot1x: true, dmvpn: info.vendor === 'cisco', ipsec: true, gre: true, known: false, note: 'Özel model: yetenekler doğrulanamadı, varsayım kullanıldı.' };
 }
 function supports(info, proto) { return Boolean(deviceCaps(info)[proto]); }
 function deviceLabel(info) { return `${vendorName(info.vendor)} ${info.model}`; }
@@ -54,7 +54,7 @@ function applyModelDefaults(card) {
     $('.os', card).value = d.os; $('.version', card).value = d.version;
     if (!$('.ports', card).dataset.touched) $('.ports', card).value = d.uplinks.join(', ');
     const roleSel = $('.role', card);
-    const roleMap = { access: 'leaf', core: 'spine' };
+    const roleMap = { access: 'leaf', core: 'spine', router: 'distribution' };
     const wanted = d.roles.map(r => roleMap[r] || r);
     if (!wanted.includes(roleSel.value)) roleSel.value = wanted[0];
   }
@@ -65,7 +65,7 @@ function renderCaps(card) {
   const vendor = $('.vendor', card).value; const model = $('.model', card).value;
   const info = { vendor, model: model === CUSTOM_MODEL ? ($('.model-custom', card).value.trim() || 'Özel model') : model };
   const caps = deviceCaps(info);
-  $('.cap-chips', card).innerHTML = ['ospf', 'bgp', 'eigrp', 'static', 'vxlan', 'dot1x'].map(k => `<span class="cap ${caps[k] ? 'on' : 'off'}">${caps[k] ? '✓' : '✕'} ${PROTO_NAME[k]}</span>`).join('');
+  $('.cap-chips', card).innerHTML = (caps.ipsec !== undefined && caps.dmvpn !== undefined && !caps.vxlan && !caps.dot1x && (findDevice(vendor, info.model) || {}).roles && findDevice(vendor, info.model).roles.includes('router') ? ['ospf', 'bgp', 'eigrp', 'static', 'dmvpn', 'ipsec', 'gre'] : ['ospf', 'bgp', 'eigrp', 'static', 'vxlan', 'dot1x']).map(k => `<span class="cap ${caps[k] ? 'on' : 'off'}">${caps[k] ? '✓' : '✕'} ${PROTO_NAME[k]}</span>`).join('');
   $('.cap-note', card).textContent = caps.note || '';
 }
 
@@ -104,14 +104,17 @@ function setModule(module) {
   $('#hardeningContext').hidden = module !== 'hardening';
   $('#campusContext').hidden = module !== 'campus';
   $('#auditContext').hidden = module !== 'audit';
-  $('.device-grid').hidden = module === 'campus';
+  $('#wanContext').hidden = module !== 'wan';
+  $('.device-grid').hidden = module === 'campus' || module === 'wan';
   $$('.device-card').forEach(c => { c.hidden = module === 'hardening' && c.dataset.device !== 'a'; });
   const actions = $('#deviceActions'); if (actions) actions.hidden = !['routing', 'cabling', 'security', 'audit'].includes(module);
-  const navVisible = { hardening: ['full', 'audit'], campus: ['full', 'audit'], audit: ['audit'], security: ['audit'] }[module] || [];
+  const navVisible = { hardening: ['full', 'audit'], campus: ['full', 'audit'], audit: ['audit'], security: ['audit'], wan: ['audit'] }[module] || [];
   $$('.hardening-only').forEach(x => { x.hidden = !navVisible.includes(x.dataset.panel); });
   const auditBtn = $('.hardening-only[data-panel="audit"]'); if (auditBtn) auditBtn.textContent = ['audit', 'security'].includes(module) ? 'Denetim raporu' : 'Hardening raporu';
-  const deltaBtn = $('.output-nav [data-panel="delta"]'); if (deltaBtn) deltaBtn.textContent = module === 'audit' ? 'Düzeltme komutları' : 'Delta config';
+  if (module === 'wan' && auditBtn) auditBtn.textContent = 'Tasarım raporu';
+  const deltaBtn = $('.output-nav [data-panel="delta"]'); if (deltaBtn) deltaBtn.textContent = module === 'audit' ? 'Düzeltme komutları' : module === 'wan' ? 'Router config' : 'Delta config';
   const text = {
+    wan: "Merkezde 1 hub ve şubelerde 3 spoke router ile DMVPN Phase 3 kur. Overlay yönlendirme EIGRP olsun, tüneller IPsec (IKEv2, AES-256) ile korunsun.",
     audit: "Yüklediğim config'leri güvenlik açısından denetle; hardening, Layer 2 koruma, 802.1X hazırlığı ve routing güvenliği için eksikleri ve düzeltme komutlarını ver.",
     routing: "İki cihazdaki VLAN 40'ı aynı Layer 2 ağ olarak uzat. Adı BILGI_ISLEM olsun. VNI ve gerekli loopback adreslerini sen belirle. Mevcut yapıyı bozmadan VXLAN EVPN kullan.",
     security: "Kullanıcı portlarında 802.1X olsun, başarısız olursa MAB denensin. ClearPass RADIUS kullan, telefon ve bilgisayar aynı portta çalışsın. 8 saatte reauth ve CoA etkin olsun.",
@@ -121,6 +124,12 @@ function setModule(module) {
   };
   $('#intentInput').value = window.I18N ? I18N.t(text[module]) : text[module];
   if (module === 'audit') setMode('live');
+  retitleCards(module);
+  const grid = $('.device-grid'); if (grid) grid.dataset.module = module;
+  if (module === 'audit') {
+    const restoring = window.NETCUBE_JOBS && window.NETCUBE_JOBS.restoring;
+    $$('.device-card').forEach(c => { if (!restoring && state.configs[c.dataset.device] && !c.dataset.detected) autoDetectCard(c); renderDetectChip(c); });
+  }
 }
 
 function sampleConfig(vendor, side) {
@@ -203,18 +212,6 @@ function campusVlans() {
   }).filter(x=>Number.isInteger(x.id)&&x.id>0&&x.id<4095);
 }
 
-function campusInventory() {
-  const osMap={cisco:'IOS-XE',aruba:'AOS-CX',huawei:'VRP'};
-  const coreVendor=inputValue('coreVendor','cisco'), accessVendor=inputValue('accessVendor','cisco');
-  return {
-    coreCount:Math.max(1,Math.min(4,Number(inputValue('coreCount','2')))),
-    accessCount:Math.max(1,Math.min(24,Number(inputValue('accessCount','4')))),
-    core:{vendor:coreVendor,model:inputValue('coreModel',(catalogFor(coreVendor)[0]||{}).model||'Core'),os:osMap[coreVendor],version:'Profil tabanlı',config:'',ports:[],role:'core'},
-    access:{vendor:accessVendor,model:inputValue('accessModel',(catalogFor(accessVendor)[0]||{}).model||'Access'),os:osMap[accessVendor],version:'Profil tabanlı',config:'',ports:['49','50'],role:'access'},
-    vlans:campusVlans(), dual:inputValue('campusRedundancy','dual')==='dual'
-  };
-}
-
 function gatewayAddress(vlan,host) {
   const template=inputValue('gatewayTemplate','10.{VLAN}.0.1/24').replace('{VLAN}',String(vlan));
   const [ip,prefix='24']=template.split('/'); const parts=ip.split('.'); parts[3]=String(host); return `${parts.join('.')}/${prefix}`;
@@ -224,35 +221,234 @@ function managementAddress(host) {
 }
 function isManagementVlan(v) { return /MANAGEMENT|MGMT/i.test(v.name); }
 
-function campusCiscoConfig(role, inv) {
-  const vlanDefs=inv.vlans.map(v=>`vlan ${v.id}\n name ${v.name}`).join('\n');
-  const admin=adminAclParts(inputValue('adminNetwork','10.10.10.0/24'));
-  const common=`service timestamps log datetime msec localtime show-timezone\nservice password-encryption\nno ip http server\nno ip http secure-server\nip domain-name corp.local\nip ssh version 2\naaa new-model\nusername breakglass privilege 15 secret <LOCAL_SECRET_FROM_VAULT>\nip access-list standard MGMT_ACCESS\n permit ${admin.ip} ${admin.wildcard}\n deny any log\nspanning-tree mode rapid-pvst\nspanning-tree portfast bpduguard default\nntp server 10.10.20.10 prefer\nlogging host 10.10.30.20\nlogging trap warnings\nsnmp-server group NMS v3 priv access MGMT_ACCESS\nsnmp-server user <SNMPV3_USER> NMS v3 auth sha <AUTH_FROM_VAULT> priv aes 256 <PRIV_FROM_VAULT>\nline vty 0 15\n access-class MGMT_ACCESS in\n transport input ssh\n login local\n exec-timeout 10 0`;
-  if(role==='core') return Array.from({length:inv.coreCount},(_,i)=>{
-    const protectedVlans=inv.vlans.filter(v=>!isManagementVlan(v)).map(v=>v.id).join(',');
-    const svis=inv.vlans.map(v=>{const vip=isManagementVlan(v)?managementAddress(1):gatewayAddress(v.id,1),pip=isManagementVlan(v)?managementAddress(i+2):gatewayAddress(v.id,i+2);return `interface Vlan${v.id}\n description GW_${v.name}\n ip address ${ipOnly(pip)} ${maskFor(pip)}\n standby ${v.id%256||1} ip ${ipOnly(vip)}\n standby ${v.id%256||1} priority ${i===0?110:100}\n standby ${v.id%256||1} preempt\n no shutdown`;}).join('\n');
-    const trunks=Array.from({length:inv.accessCount},(_,a)=>`interface TenGigabitEthernet1/0/${a+1}\n description TO-ACCESS-${String(a+1).padStart(2,'0')}-TE1/1/${i+1}\n switchport mode trunk\n switchport trunk allowed vlan ${inv.vlans.map(v=>v.id).join(',')}\n ip dhcp snooping trust\n ip arp inspection trust\n no shutdown`).join('\n');
-    return `! ===== CORE-${String(i+1).padStart(2,'0')} · ${inv.core.model} =====\nhostname CORE-${String(i+1).padStart(2,'0')}\n${common}\nip routing\n${vlanDefs}\nip dhcp snooping\nip dhcp snooping vlan ${protectedVlans}\nip arp inspection vlan ${protectedVlans}\n${svis}\n${trunks}\nspanning-tree vlan ${inv.vlans.map(v=>v.id).join(',')} root ${i===0?'primary':'secondary'}\nend`;
-  }).join('\n\n');
-  return Array.from({length:inv.accessCount},(_,i)=>{
-    const mgmt=inv.vlans.find(v=>/MANAGEMENT|MGMT/i.test(v.name))||inv.vlans.at(-1); const uplinks=inv.dual?['49','50']:['49'];
-    const protectedVlans=inv.vlans.filter(v=>!isManagementVlan(v)).map(v=>v.id).join(',');
-    return `! ===== ACCESS-${String(i+1).padStart(2,'0')} · ${inv.access.model} =====\nhostname ACCESS-${String(i+1).padStart(2,'0')}\n${common}\n${vlanDefs}\nip dhcp snooping\nip dhcp snooping vlan ${protectedVlans}\nip arp inspection vlan ${protectedVlans}\ninterface Vlan${mgmt.id}\n description MANAGEMENT\n ip address ${ipOnly(managementAddress(20+i))} ${maskFor(managementAddress(20+i))}\n no shutdown\nip default-gateway ${ipOnly(managementAddress(1))}\ninterface range GigabitEthernet1/0/1-24\n description USER_AND_VOICE\n switchport mode access\n switchport access vlan ${inv.vlans[0].id}\n switchport voice vlan ${(inv.vlans.find(v=>/VOICE/i.test(v.name))||inv.vlans[0]).id}\n ip verify source\n spanning-tree portfast\n spanning-tree bpduguard enable\ninterface range GigabitEthernet1/0/25-44\n description ${inv.vlans[2]?.name||inv.vlans[0].name}\n switchport mode access\n switchport access vlan ${inv.vlans[2]?.id||inv.vlans[0].id}\n ip verify source\n spanning-tree portfast\n spanning-tree bpduguard enable\ninterface range GigabitEthernet1/0/45-48\n description UNUSED_SHUTDOWN\n shutdown\n${uplinks.map((p,u)=>`interface TenGigabitEthernet1/1/${u+1}\n description TO-CORE-${String(u+1).padStart(2,'0')}-TE1/0/${i+1}\n switchport mode trunk\n switchport trunk allowed vlan ${inv.vlans.map(v=>v.id).join(',')}\n ip dhcp snooping trust\n ip arp inspection trust\n no shutdown`).join('\n')}\nend`;
-  }).join('\n\n');
+// ---------- Campus Builder: cihaz envanteri + niyet tabanlı üretim ----------
+function campusIsIp(s) { return /^\d{1,3}(\.\d{1,3}){3}$/.test(s) && s.split('.').every(n => Number(n) <= 255); }
+
+function netInfo(cidr) {
+  const [ip, p = '24'] = cidr.split('/'); const pre = Math.max(0, Math.min(32, Number(p)));
+  const o = ip.split('.').map(Number); const bits = pre === 0 ? 0 : (0xFFFFFFFF << (32 - pre)) >>> 0;
+  const n = (((o[0] << 24) | (o[1] << 16) | (o[2] << 8) | o[3]) >>> 0);
+  const q = x => [24, 16, 8, 0].map(s => (x >>> s) & 255).join('.');
+  return { net: q((n & bits) >>> 0), mask: q(bits), wildcard: q((~bits) >>> 0), prefix: pre };
 }
 
-function campusGenericConfig(vendor,role,inv) {
-  const comment=vendor==='huawei'?'#':'!'; const label=vendor==='aruba'?'AOS-CX':'VRP';
-  const count=role==='core'?inv.coreCount:inv.accessCount, model=role==='core'?inv.core.model:inv.access.model;
-  const vlanLines=inv.vlans.map(v=>vendor==='aruba'?`vlan ${v.id}\n name ${v.name}`:`vlan ${v.id}\n description ${v.name}\nquit`).join('\n');
-  return Array.from({length:count},(_,i)=>`${comment} ===== ${role.toUpperCase()}-${String(i+1).padStart(2,'0')} · ${model} · ${label} =====\n${vendor==='aruba'?`hostname ${role.toUpperCase()}-${String(i+1).padStart(2,'0')}\nno telnet-server\nssh server vrf default\nuser breakglass group administrators password ciphertext <LOCAL_SECRET_FROM_VAULT>\nspanning-tree\nspanning-tree bpdu-guard\nntp server 10.10.20.10 iburst prefer\nlogging 10.10.30.20\n${vlanLines}`:`sysname ${role.toUpperCase()}-${String(i+1).padStart(2,'0')}\nundo telnet server enable\nstelnet server enable\nstp enable\nstp bpdu-protection\nntp-service unicast-server 10.10.20.10 preferred\ninfo-center loghost 10.10.30.20\n${vlanLines}`}\n${comment} Uplink ve SVI blokları ${inv.dual?'çift core':'tek core'} topolojisine göre cihaz profiliyle üretilir.\n${vendor==='aruba'?'':'return'}`).join('\n\n');
+function campusPortName(vendor, kind, n) {
+  if (vendor === 'cisco') return kind === 'up' ? `TenGigabitEthernet1/1/${n}` : `TenGigabitEthernet1/0/${n}`;
+  if (vendor === 'aruba') return kind === 'up' ? `1/1/${48 + n}` : `1/1/${n}`;
+  return `XGigabitEthernet0/0/${n}`;
 }
 
-function campusConfig(vendor,side) {
-  const inv=campusInventory(), role=side==='a'?'core':'access';
-  const full=vendor==='cisco'?campusCiscoConfig(role,inv):campusGenericConfig(vendor,role,inv);
-  const label=role==='core'?'CORE SWITCH CONFIGLERİ':'ACCESS SWITCH CONFIGLERİ';
-  return {delta:full,full,audit:`CAMPUS TASARIM RAPORU\n\n${inv.coreCount} core · ${inv.accessCount} access · ${inv.vlans.length} VLAN\nTopoloji: ${inv.dual?'Her access iki core’a yedekli bağlı':'Tek uplink'}\nManagement gateway: ${managementAddress(1)}\nCore management IP’leri: ${Array.from({length:inv.coreCount},(_,i)=>`CORE-${String(i+1).padStart(2,'0')}=${managementAddress(i+2)}`).join(', ')}\nAccess management IP’leri: ${Array.from({length:inv.accessCount},(_,i)=>`ACCESS-${String(i+1).padStart(2,'0')}=${managementAddress(i+20)}`).join(', ')}\n\nVLANLAR\n${inv.vlans.map(v=>`${v.id}\t${v.name}\tGateway ${isManagementVlan(v)?managementAddress(1):gatewayAddress(v.id,1)}`).join('\n')}\n\nPORT PLANI\n${Array.from({length:inv.accessCount},(_,i)=>`ACCESS-${String(i+1).padStart(2,'0')} Te1/1/1 → CORE-01 Te1/0/${i+1}${inv.dual?`; Te1/1/2 → CORE-02 Te1/0/${i+1}`:''}`).join('\n')}\n\nGÜVENLİK\n- Core-01 STP root primary, Core-02 root secondary.\n- DHCP Snooping ve DAI kullanıcı VLANlarında etkin.\n- Yalnız uplink portları DHCP/ARP trusted.\n- Access portlarında IP Source Guard ve BPDU Guard etkin.\n- Kullanılmayan 45-48 portları kapalı.\n- Secret değerleri vault placeholder olarak bırakıldı.\n\nVARSAYIM\nGerçek port kapasitesi ve komut desteği tam model/sürüm profiliyle doğrulanmalıdır.`,verify:`${label}\n\n1. VLAN ve trunk kapsamını doğrula.\n2. STP root primary/secondary ve blocked yedek yolu doğrula.\n3. Core gateway/first-hop redundancy durumunu doğrula.\n4. Her access switchten ${managementAddress(1)} management gateway ping testi yap.\n5. DHCP Snooping binding ve DAI drop sayaçlarını doğrula.\n6. Trusted portların yalnız uplinkler olduğunu doğrula.\n7. SSH, NTP, syslog ve SNMPv3 yönetim servislerini doğrula.`,rollback:'Yeni kurulumda rollback: startup-config yüklenmeden cihazı fabrika/önceki baseline durumuna döndür. Canlı sisteme uygulanacaksa her cihazın orijinal config snapshotını geri yükle.'};
+// Niyet metninden campus özelliklerini çıkarır
+function campusFeatures(text) {
+  const t = (text || '').toLocaleLowerCase('tr-TR') + ' ' + (text || '').toLowerCase();
+  const no = re => re.test(t);
+  const f = { hardening: true, l2sec: true, dot1x: false, ospf: false, defaultRoute: null, dhcp: false, redundancy: null, vlans: null, cores: null, accesses: null, labels: [] };
+  if (no(/hardening (yok|olmasın|istemiyorum)|without hardening|no hardening|hardening\W*(?:is )?not needed/)) f.hardening = false;
+  if (no(/(snooping|dai|l2 güvenlik|layer 2 güvenlik|layer 2 security)\s*(yok|olmasın|istemiyorum)|without (dhcp )?snooping|no (dhcp )?snooping/)) f.l2sec = false;
+  f.dot1x = no(/802\.1x|\bmab\b|radius|clearpass|cisco ise|\bnps\b|\bnac\b|dot1x|kimlik doğrulama|network access control/);
+  f.ospf = no(/ospf|dynamic routing|dinamik routing|dinamik yönlendirme/);
+  f.dhcp = no(/dhcp\s*(server|sunucu|havuz|pool|hizmet)|dhcp (olsun|ver)|ip dağıt|address pool|dhcp pool/);
+  const ipRe = /(\d{1,3}(?:\.\d{1,3}){3})(?!\/)/g; let mm;
+  while ((mm = ipRe.exec(text || '')) !== null) {
+    if (!campusIsIp(mm[1])) continue;
+    const ctx = (text || '').slice(Math.max(0, mm.index - 70), mm.index + mm[0].length + 70).toLowerCase();
+    if (/(default route|varsayılan rota|varsayılan yol|default gateway|internet|\bwan\b|çıkış)/.test(ctx) && /(\bvia\b|üzerinden|next-?hop)/.test(ctx)) { f.defaultRoute = mm[1]; break; }
+  }
+  if (!f.defaultRoute && no(/default route|varsayılan rota|internet çıkış|internet access|wan çıkış/)) f.defaultRoute = '<NEXT_HOP_IP>';
+  if (no(/tek uplink|single uplink|single core|tek core uplink/)) f.redundancy = 'single';
+  else if (no(/çift uplink|dual uplink|dual-homed|redundant|yedekli|dual core/)) f.redundancy = 'dual';
+  // VLAN listesi: "VLAN 10 USERS" (ad büyük harfle yazıldığında alınır)
+  const seen = new Map(); let m; const re = /vlan\s*(\d{1,4})\s*[:\-]?\s*([A-Za-z][A-Za-z0-9_]{1,24})?/gi;
+  while ((m = re.exec(text || '')) !== null) { const id = Number(m[1]); if (id > 0 && id < 4095 && !seen.has(id)) seen.set(id, m[2] && m[2] === m[2].toUpperCase() ? m[2] : `VLAN_${id}`); }
+  if (seen.size >= 2) f.vlans = [...seen.entries()].map(([id, name]) => ({ id, name }));
+  const c = (text || '').match(/(\d{1,2})\s*(?:adet\s*)?core/i), a = (text || '').match(/(\d{1,2})\s*(?:adet\s*)?access/i);
+  if (c) f.cores = Math.max(1, Math.min(4, Number(c[1]))); if (a) f.accesses = Math.max(1, Math.min(24, Number(a[1])));
+  const L = f.labels;
+  if (f.hardening) L.push('hardening'); if (f.l2sec) L.push('Layer 2 koruma'); if (f.dot1x) L.push('802.1X / MAB'); if (f.ospf) L.push('OSPF');
+  if (f.defaultRoute) L.push('varsayılan rota'); if (f.dhcp) L.push('DHCP sunucusu'); if (f.redundancy) L.push(f.redundancy === 'single' ? 'tek uplink' : 'çift uplink');
+  return f;
+}
+
+// Niyetin envanteri ve VLAN alanlarını sürmesi (arayüzde de görünür)
+function campusApplyIntent() {
+  const f = campusFeatures(($('#intentInput') || {}).value || '');
+  state.campusFeatures = f;
+  const msgs = [];
+  if (f.vlans) {
+    const txt = f.vlans.map(v => `${v.id}:${v.name}`).join(', ');
+    const el = $('#campusVlans'); if (el && el.value.trim() !== txt) { el.value = txt; msgs.push('VLAN listesi niyetten alındı'); }
+  }
+  if (f.redundancy) { const el = $('#campusRedundancy'); if (el) el.value = f.redundancy === 'single' ? 'single' : 'dual'; }
+  if ((f.cores || f.accesses) && !state.campusTouched) {
+    const nc = state.campus.filter(r => r.role === 'core').length, na = state.campus.filter(r => r.role !== 'core').length;
+    const wc = f.cores || nc, wa = f.accesses || na;
+    if (wc !== nc || wa !== na) {
+      const lc = state.campus.filter(r => r.role === 'core').at(-1) || { vendor: 'cisco', model: undefined };
+      const la = state.campus.filter(r => r.role !== 'core').at(-1) || { vendor: 'cisco', model: undefined };
+      const cores = state.campus.filter(r => r.role === 'core').slice(0, wc); while (cores.length < wc) cores.push(newCampusRow('core', lc.vendor, lc.model));
+      const accs = state.campus.filter(r => r.role !== 'core').slice(0, wa); while (accs.length < wa) accs.push(newCampusRow('access', la.vendor, la.model));
+      state.campus = [...cores, ...accs]; renderCampusRows(); msgs.push(`cihaz sayısı niyetten alındı (${wc} core, ${wa} access)`);
+    }
+  }
+  state.campusIntentMsgs = msgs;
+  return f;
+}
+
+function campusInventory() {
+  const rows = state.campus && state.campus.length ? state.campus : defaultCampusRows();
+  const f = state.campusFeatures || campusFeatures('');
+  const notes = []; const seen = new Set();
+  const mk = (r, idx) => {
+    const role = r.role;
+    const model = (r.model === CUSTOM_MODEL ? (r.custom || '').trim() : r.model) || (catalogFor(r.vendor)[0] || {}).model || (role === 'core' ? 'Core' : 'Access');
+    const hostname = (r.hostname || '').trim().replace(/\s+/g, '-') || `${role === 'core' ? 'CORE' : 'ACCESS'}-${String(idx + 1).padStart(2, '0')}`;
+    let mgmt = managementAddress(role === 'core' ? idx + 2 : 20 + idx);
+    const typed = (r.mgmt || '').trim();
+    if (typed) { const ip = typed.split('/')[0]; if (campusIsIp(ip)) mgmt = `${ip}/${managementAddress(1).split('/')[1] || '24'}`; else notes.push(`${hostname}: yönetim IP '${typed}' geçersiz; otomatik adres kullanıldı.`); }
+    if (seen.has(hostname)) notes.push(`Hostname ${hostname} birden fazla cihazda kullanılıyor.`);
+    seen.add(hostname);
+    return { id: r.id, role, idx, vendor: r.vendor, model, hostname, mgmt, ports: Number(r.ports) || 48, os: OS_BY_VENDOR[r.vendor], version: 'Profil tabanlı', config: '' };
+  };
+  const cores = rows.filter(r => r.role === 'core').map((r, i) => mk(r, i));
+  const accesses = rows.filter(r => r.role !== 'core').map((r, i) => mk(r, i));
+  const wantDual = inputValue('campusRedundancy', 'dual') === 'dual';
+  const dual = wantDual && cores.length > 1;
+  if (wantDual && cores.length === 1) notes.push('Tek core olduğu için çift uplink kurulamadı; her access tek core uplink kullanıyor.');
+  const links = []; const used = {}; cores.forEach(c => { used[c.id] = 0; });
+  accesses.forEach((a, k) => {
+    const targets = dual ? [cores[k % cores.length], cores[(k + 1) % cores.length]] : [cores[k % cores.length]];
+    targets.forEach((c, u) => { used[c.id]++; links.push({ access: a, core: c, u, aPort: campusPortName(a.vendor, 'up', u + 1), cPort: campusPortName(c.vendor, 'down', used[c.id]) }); });
+  });
+  (state.campusIntentMsgs || []).forEach(m => notes.push(`Niyetten: ${m}.`));
+  notes.push(f.labels.length ? `Niyetten algılanan özellikler: ${f.labels.join(', ')}.` : 'Niyette ek özellik bulunamadı; temel paket üretildi.');
+  return { devices: [...cores, ...accesses], cores, accesses, links, vlans: campusVlans(), dual, f, coreCount: cores.length, accessCount: accesses.length, notes };
+}
+
+function campusLinksOf(inv, d) { return inv.links.filter(l => (d.role === 'core' ? l.core.id : l.access.id) === d.id); }
+function campusRadius() { return (inputValue('radiusServers', '10.10.10.20, 10.10.10.21').split(',').map(x => x.trim()).filter(Boolean)); }
+function campusDnsHint() { return '<DNS_IP>'; }
+
+function campusCiscoDevice(d, inv) {
+  const f = inv.f; const vlanIds = inv.vlans.map(v => v.id).join(',');
+  const protectedIds = inv.vlans.filter(v => !isManagementVlan(v)).map(v => v.id); const protectedVlans = protectedIds.join(',');
+  const vlanDefs = inv.vlans.map(v => `vlan ${v.id}\n name ${v.name}`).join('\n');
+  const admin = adminAclParts(inputValue('adminNetwork', '10.10.10.0/24')); const radius = campusRadius();
+  const base = ['ip domain-name corp.local', 'ip ssh version 2', 'spanning-tree mode rapid-pvst'];
+  const hard = f.hardening ? ['service timestamps log datetime msec localtime show-timezone', 'service password-encryption', 'no ip http server', 'no ip http secure-server', 'username breakglass privilege 15 secret <LOCAL_SECRET_FROM_VAULT>', 'ip access-list standard MGMT_ACCESS', ` permit ${admin.ip} ${admin.wildcard}`, ' deny any log', 'ntp server 10.10.20.10 prefer', 'logging host 10.10.30.20', 'logging trap warnings', 'snmp-server group NMS v3 priv access MGMT_ACCESS', 'snmp-server user <SNMPV3_USER> NMS v3 auth sha <AUTH_FROM_VAULT> priv aes 256 <PRIV_FROM_VAULT>', 'line vty 0 15', ' access-class MGMT_ACCESS in', ' transport input ssh', ' login local', ' exec-timeout 10 0'] : ['line vty 0 15', ' transport input ssh', ' login local'];
+  const aaa = f.hardening || f.dot1x ? ['aaa new-model'] : [];
+  const common = [...base, ...(f.hardening ? ['spanning-tree portfast bpduguard default'] : []), ...aaa, ...hard].join('\n');
+  const mine = campusLinksOf(inv, d);
+  const trust = f.l2sec ? [' ip dhcp snooping trust', ' ip arp inspection trust'] : [];
+  const trunk = (port, desc) => [`interface ${port}`, ` description ${desc}`, ' switchport mode trunk', ` switchport trunk allowed vlan ${vlanIds}`, ...trust, ' no shutdown'].join('\n');
+  const l2lines = f.l2sec ? ['ip dhcp snooping', `ip dhcp snooping vlan ${protectedVlans}`, `ip arp inspection vlan ${protectedVlans}`] : [];
+  const head = [`! ===== ${d.hostname} · ${d.model} =====`, '! Arayüz adlarını model ve port numaralandırmasına göre doğrulayın', `hostname ${d.hostname}`, common];
+  if (d.role === 'core') {
+    const svis = inv.vlans.map(v => {
+      const mg = isManagementVlan(v); const vip = mg ? managementAddress(1) : gatewayAddress(v.id, 1); const pip = mg ? d.mgmt : gatewayAddress(v.id, d.idx + 2); const g = v.id % 256 || 1;
+      return [`interface Vlan${v.id}`, ` description GW_${v.name}`, ` ip address ${ipOnly(pip)} ${netInfo(pip).mask}`, ` standby ${g} ip ${ipOnly(vip)}`, ` standby ${g} priority ${d.idx === 0 ? 110 : 100}`, ` standby ${g} preempt`, ...(f.ospf ? [' ip ospf 10 area 0'] : []), ' no shutdown'].join('\n');
+    }).join('\n');
+    const root = d.idx === 0 ? 'primary' : d.idx === 1 ? 'secondary' : '';
+    const dhcp = f.dhcp && d.idx === 0 ? ['! DHCP sunucusu bu core üzerinde (sanal gateway adresiyle)', ...protectedIds.flatMap(id => { const v = inv.vlans.find(x => x.id === id); const gw = gatewayAddress(id, 1); const ni = netInfo(gw); const base3 = ipOnly(gw).split('.').slice(0, 3).join('.'); return [`ip dhcp excluded-address ${base3}.1 ${base3}.10`, `ip dhcp pool VLAN${id}_${v.name}`, ` network ${ni.net} ${ni.mask}`, ` default-router ${ipOnly(gw)}`, ` dns-server ${campusDnsHint()}`, ' lease 1']; })] : [];
+    const ospf = f.ospf ? ['router ospf 10', ` router-id ${ipOnly(d.mgmt)}`, ' passive-interface default', ' no passive-interface <UPSTREAM_INTERFACE>', ...inv.vlans.map(v => { const ni = netInfo(isManagementVlan(v) ? d.mgmt : gatewayAddress(v.id, d.idx + 2)); return ` network ${ni.net} ${ni.wildcard} area 0`; })] : [];
+    const dr = f.defaultRoute ? [`ip route 0.0.0.0 0.0.0.0 ${f.defaultRoute}`] : [];
+    return [...head, 'ip routing', vlanDefs, ...l2lines, svis, mine.map(l => trunk(l.cPort, `TO-${l.access.hostname}-${l.aPort}`)).join('\n'), root ? `spanning-tree vlan ${vlanIds} root ${root}` : '', ...dhcp, ...ospf, ...dr, 'end'].filter(Boolean).join('\n');
+  }
+  const mgmtVlan = inv.vlans.find(isManagementVlan) || inv.vlans.at(-1);
+  const n = d.ports; const userEnd = Math.floor(n / 2); const dataEnd = n - 4;
+  const voice = (inv.vlans.find(v => /VOICE/i.test(v.name)) || inv.vlans[0]).id; const data = inv.vlans[2] || inv.vlans[0];
+  const dotGlobal = f.dot1x ? ['dot1x system-auth-control', 'aaa authentication dot1x default group radius', 'aaa authorization network default group radius', 'aaa accounting dot1x default start-stop group radius', ...radius.flatMap((ip, i) => [`radius server NAC-${i + 1}`, ` address ipv4 ${ip} auth-port 1812 acct-port 1813`, ' key <RADIUS_SECRET>']), 'radius-server dead-criteria time 5 tries 3', 'aaa server radius dynamic-author', ` client ${radius[0] || '<RADIUS_IP>'} server-key <COA_KEY>`] : [];
+  const dotPort = f.dot1x ? [' authentication port-control auto', ' dot1x pae authenticator', ' mab', ' authentication order dot1x mab', ' authentication priority dot1x mab', ' authentication host-mode multi-domain', ' authentication periodic', ' authentication timer reauthenticate server', ' authentication event server dead action authorize vlan <CRITICAL_VLAN>'] : [];
+  const portProt = f.l2sec ? [' ip verify source', ' spanning-tree portfast', ' spanning-tree bpduguard enable'] : [' spanning-tree portfast'];
+  return [...head, ...dotGlobal, vlanDefs, ...l2lines,
+    `interface Vlan${mgmtVlan.id}`, ' description MANAGEMENT', ` ip address ${ipOnly(d.mgmt)} ${netInfo(d.mgmt).mask}`, ' no shutdown', `ip default-gateway ${ipOnly(managementAddress(1))}`,
+    `interface range GigabitEthernet1/0/1-${userEnd}`, ' description USER_AND_VOICE', ' switchport mode access', ` switchport access vlan ${inv.vlans[0].id}`, ` switchport voice vlan ${voice}`, ...dotPort, ...portProt,
+    `interface range GigabitEthernet1/0/${userEnd + 1}-${dataEnd}`, ` description ${data.name}`, ' switchport mode access', ` switchport access vlan ${data.id}`, ...dotPort, ...portProt,
+    `interface range GigabitEthernet1/0/${dataEnd + 1}-${n}`, ' description UNUSED_SHUTDOWN', ' shutdown',
+    mine.map(l => trunk(l.aPort, `TO-${l.core.hostname}-${l.cPort}`)).join('\n'), 'end'].filter(Boolean).join('\n');
+}
+
+function campusGenericDevice(d, inv) {
+  const f = inv.f; const aruba = d.vendor === 'aruba', cm = aruba ? '!' : '#', label = aruba ? 'AOS-CX' : 'VRP';
+  const vlanIds = inv.vlans.map(v => v.id);
+  const protectedIds = inv.vlans.filter(v => !isManagementVlan(v)).map(v => v.id);
+  const radius = campusRadius(); const mine = campusLinksOf(inv, d);
+  const vlanLines = inv.vlans.map(v => (aruba ? `vlan ${v.id}\n name ${v.name}` : `vlan ${v.id}\n description ${v.name}\nquit`)).join('\n');
+  const head = aruba
+    ? [`hostname ${d.hostname}`, 'ssh server vrf default', 'spanning-tree', 'spanning-tree mode rpvst', ...(f.hardening ? ['no telnet server vrf default', 'no telnet server vrf mgmt', 'user breakglass group administrators password ciphertext <LOCAL_SECRET_FROM_VAULT>', 'ntp server 10.10.20.10 iburst prefer', 'logging 10.10.30.20'] : [])]
+    : [`sysname ${d.hostname}`, 'stelnet server enable', 'stp enable', 'stp mode rstp', ...(f.hardening ? ['undo telnet server enable', 'stp bpdu-protection', 'ntp-service unicast-server 10.10.20.10 preferred', 'info-center enable', 'info-center loghost 10.10.30.20'] : [])];
+  const snoop = !f.l2sec ? [] : aruba
+    ? ['dhcpv4-snooping', ...protectedIds.map(id => `vlan ${id}\n dhcpv4-snooping`), `arp inspection vlan ${protectedIds.join(',')}`]
+    : ['dhcp enable', 'dhcp snooping enable', ...protectedIds.map(id => `vlan ${id}\n dhcp snooping enable\nquit`), 'arp anti-attack check user-bind enable'];
+  const trunk = (port, desc) => (aruba
+    ? [`interface ${port}`, ` description ${desc}`, ' no shutdown', ' no routing', ' vlan trunk native 999', ` vlan trunk allowed ${vlanIds.join(',')}`, ...(f.l2sec ? [' dhcpv4-snooping trust', ' arp inspection trust'] : [])].join('\n')
+    : [`interface ${port}`, ` description ${desc}`, ' port link-type trunk', ' port trunk pvid vlan 999', ` port trunk allow-pass vlan ${vlanIds.join(' ')}`, ...(f.l2sec ? [' dhcp snooping trusted'] : []), 'quit'].join('\n'));
+  const body = [];
+  if (d.role === 'core') {
+    inv.vlans.forEach(v => {
+      const mg = isManagementVlan(v); const vip = mg ? managementAddress(1) : gatewayAddress(v.id, 1); const pip = mg ? d.mgmt : gatewayAddress(v.id, d.idx + 2); const g = v.id % 256 || 1; const prio = d.idx === 0 ? 110 : 100;
+      body.push(aruba
+        ? [`interface vlan ${v.id}`, ` description GW_${v.name}`, ` ip address ${pip}`, ...(f.ospf ? [' ip ospf 1 area 0.0.0.0'] : []), ` vrrp ${g} address-family ipv4`, `  address ${ipOnly(vip)} primary`, `  priority ${prio}`, '  no shutdown'].join('\n')
+        : [`interface Vlanif${v.id}`, ` description GW_${v.name}`, ` ip address ${ipOnly(pip)} ${netInfo(pip).mask}`, ` vrrp vrid ${g} virtual-ip ${ipOnly(vip)}`, ` vrrp vrid ${g} priority ${prio}`, ...(f.dhcp && d.idx === 0 && !mg ? [' dhcp select global'] : []), 'quit'].join('\n'));
+    });
+    mine.forEach(l => body.push(trunk(l.cPort, `TO-${l.access.hostname}-${l.aPort}`)));
+    body.push(aruba ? `spanning-tree priority ${d.idx === 0 ? 0 : d.idx === 1 ? 1 : 8}` : `stp ${d.idx === 0 ? 'root primary' : d.idx === 1 ? 'root secondary' : 'priority 32768'}`);
+    if (f.dhcp && d.idx === 0) {
+      body.push('! DHCP sunucusu bu core üzerinde (sanal gateway adresiyle)');
+      if (aruba) body.push(['dhcp-server vrf default', ...protectedIds.flatMap(id => { const v = inv.vlans.find(x => x.id === id); const gw = gatewayAddress(id, 1); const b3 = ipOnly(gw).split('.').slice(0, 3).join('.'); return [` pool VLAN${id}_${v.name}`, `  range ${b3}.11 ${b3}.250 prefix-len ${netInfo(gw).prefix}`, `  default-router ${ipOnly(gw)}`, `  dns-server ${campusDnsHint()}`, '  lease 01:00:00', '  enable']; })].join('\n'));
+      else protectedIds.forEach(id => { const v = inv.vlans.find(x => x.id === id); const gw = gatewayAddress(id, 1); const ni = netInfo(gw); body.push([`ip pool VLAN${id}_${v.name}`, ` gateway-list ${ipOnly(gw)}`, ` network ${ni.net} mask ${ni.mask}`, ` dns-list ${campusDnsHint()}`, ' lease day 1', 'quit'].join('\n')); });
+    }
+    if (f.ospf) {
+      if (aruba) body.push(['router ospf 1', ` router-id ${ipOnly(d.mgmt)}`, ' passive-interface default', ' area 0.0.0.0', '! Upstream L3 arayüzünde: ip ospf 1 area 0.0.0.0 ve passive-interface kapatılmalı'].join('\n'));
+      else body.push(['ospf 10 router-id ' + ipOnly(d.mgmt), ' silent-interface all', ' undo silent-interface <UPSTREAM_INTERFACE>', ' area 0.0.0.0', ...inv.vlans.map(v => { const ni = netInfo(isManagementVlan(v) ? d.mgmt : gatewayAddress(v.id, d.idx + 2)); return `  network ${ni.net} ${ni.wildcard}`; }), 'quit'].join('\n'));
+    }
+    if (f.defaultRoute) body.push(aruba ? `ip route 0.0.0.0/0 ${f.defaultRoute}` : `ip route-static 0.0.0.0 0.0.0.0 ${f.defaultRoute}`);
+  } else {
+    const mg = inv.vlans.find(isManagementVlan) || inv.vlans.at(-1); const n = d.ports; const userVlan = inv.vlans[0].id; const gw = ipOnly(managementAddress(1));
+    if (f.dot1x) {
+      body.push(aruba
+        ? [...radius.map(ip => `radius-server host ${ip} key plaintext <RADIUS_SECRET>`), 'radius dyn-authorization enable', `radius dyn-authorization client ${radius[0] || '<RADIUS_IP>'} secret-key plaintext <COA_KEY>`, 'aaa authentication port-access dot1x authenticator', ' enable', 'aaa authentication port-access mac-auth', ' enable'].join('\n')
+        : ['radius-server template NAC', ' radius-server shared-key cipher <RADIUS_SECRET>', ...radius.map(ip => ` radius-server authentication ${ip} 1812`), 'quit', `radius-server authorization ${radius[0] || '<RADIUS_IP>'} shared-key cipher <COA_KEY>`, 'aaa', ' authentication-scheme NAC', '  authentication-mode radius', ' quit', 'quit', 'dot1x enable', 'dot1x-access-profile name DOT1X', 'mac-access-profile name MAB', 'authentication-profile name CAMPUS_DOT1X', ' dot1x-access-profile DOT1X', ' mac-access-profile MAB', ' authentication event authen-server-down action authorize vlan <CRITICAL_VLAN>', 'quit'].join('\n'));
+    }
+    body.push(aruba
+      ? [`interface vlan ${mg.id}`, ' description MANAGEMENT', ` ip address ${d.mgmt}`, `ip route 0.0.0.0/0 ${gw}`].join('\n')
+      : [`interface Vlanif${mg.id}`, ' description MANAGEMENT', ` ip address ${ipOnly(d.mgmt)} ${netInfo(d.mgmt).mask}`, 'quit', `ip route-static 0.0.0.0 0.0.0.0 ${gw}`].join('\n'));
+    body.push(aruba
+      ? [`interface 1/1/1-1/1/${n - 4}`, ' description USER_PORTS', ' no shutdown', ' no routing', ` vlan access ${userVlan}`, ' spanning-tree port-type admin-edge', ...(f.hardening || f.l2sec ? [' spanning-tree bpdu-guard'] : []), ...(f.l2sec ? [' ip source-lockdown'] : []), ...(f.dot1x ? [' aaa authentication port-access dot1x authenticator', '  enable', ' aaa authentication port-access mac-auth', '  enable'] : []), `interface 1/1/${n - 3}-1/1/${n}`, ' description UNUSED_SHUTDOWN', ' shutdown'].join('\n')
+      : ['port-group name USER_PORTS', ` group-member GigabitEthernet0/0/1 to GigabitEthernet0/0/${n - 4}`, ' port link-type access', ` port default vlan ${userVlan}`, ' stp edged-port enable', ...(f.l2sec ? [' ip source check user-bind enable'] : []), ...(f.dot1x ? [' authentication-profile CAMPUS_DOT1X'] : []), 'quit', 'port-group name UNUSED_PORTS', ` group-member GigabitEthernet0/0/${n - 3} to GigabitEthernet0/0/${n}`, ' description UNUSED_SHUTDOWN', ' shutdown', 'quit'].join('\n'));
+    mine.forEach(l => body.push(trunk(l.aPort, `TO-${l.core.hostname}-${l.cPort}`)));
+  }
+  return [`${cm} ===== ${d.hostname} · ${d.model} · ${label} =====`, `${cm} Arayüz adlarını model ve port numaralandırmasına göre doğrulayın`, ...head, vlanLines, ...snoop, ...body, aruba ? '' : 'return'].filter(Boolean).join('\n');
+}
+
+function campusReport(inv) {
+  const f = inv.f;
+  const L = ['CAMPUS TASARIM RAPORU', '', `${inv.coreCount} core · ${inv.accessCount} access · ${inv.vlans.length} VLAN`,
+    `Topoloji: ${inv.dual ? 'Her access iki core’a yedekli bağlı' : 'Tek uplink'}`, `Management gateway: ${managementAddress(1)}`, '', 'NİYETTEN ALGILANAN ÖZELLİKLER', f.labels.length ? f.labels.map(x => `- ${x}`).join('\n') : '- (ek özellik yok)', '', 'CİHAZ ENVANTERİ'];
+  inv.devices.forEach(d => L.push(`- ${d.hostname} (${d.role}) · ${vendorName(d.vendor)} ${d.model} · ${d.mgmt}`));
+  L.push('', 'VLANLAR', ...inv.vlans.map(v => `${v.id}\t${v.name}\tGateway ${isManagementVlan(v) ? managementAddress(1) : gatewayAddress(v.id, 1)}`), '', 'PORT PLANI');
+  inv.links.forEach(l => L.push(`${l.access.hostname} ${l.aPort} → ${l.core.hostname} ${l.cPort}`));
+  L.push('', 'GÜVENLİK');
+  if (inv.cores[0]) L.push(inv.cores[1] ? `- ${inv.cores[0].hostname} STP root primary, ${inv.cores[1].hostname} root secondary.` : `- ${inv.cores[0].hostname} STP root primary.`);
+  if (f.l2sec) L.push('- DHCP Snooping ve DAI kullanıcı VLANlarında etkin.', '- Yalnız uplink portları DHCP/ARP trusted.', '- Access portlarında IP Source Guard ve BPDU Guard etkin.');
+  if (f.dot1x) L.push('- Access kullanıcı portlarında 802.1X + MAB, RADIUS CoA ve critical VLAN politikası var.');
+  if (f.hardening) L.push('- Yönetim düzlemi hardening (SSH, AAA, ACL, NTP, syslog, SNMPv3) uygulandı.');
+  L.push('- Kullanılmayan son 4 port kapalı.', '- Secret değerleri vault placeholder olarak bırakıldı.', '', 'VARSAYIM', 'Gerçek port kapasitesi ve komut desteği tam model/sürüm profiliyle doğrulanmalıdır.');
+  return L.join('\n');
+}
+
+function campusConfig(vendor, side) {
+  const inv = state.campusInv || campusInventory();
+  const d = inv.devices.find(x => x.id === side);
+  const full = vendor === 'cisco' ? campusCiscoDevice(d, inv) : campusGenericDevice(d, inv);
+  const f = inv.f;
+  const checks = ['1. VLAN ve trunk kapsamını doğrula.', '2. STP root primary/secondary ve blocked yedek yolu doğrula.', '3. Core gateway/first-hop redundancy durumunu doğrula.', `4. Her access switchten ${managementAddress(1)} management gateway ping testi yap.`];
+  if (f.l2sec) checks.push('5. DHCP Snooping binding ve DAI drop sayaçlarını doğrula.', '6. Trusted portların yalnız uplinkler olduğunu doğrula.');
+  if (f.hardening) checks.push('7. SSH, NTP, syslog ve SNMPv3 yönetim servislerini doğrula.');
+  if (f.dot1x) checks.push('8. 802.1X, MAB ve RADIUS-down (critical VLAN) senaryolarını pilot portta test et.');
+  if (f.dhcp) checks.push('9. İstemcilerin DHCP ile doğru VLAN adresini aldığını doğrula.');
+  if (f.ospf || f.defaultRoute) checks.push('10. Upstream komşuluğu, OSPF rotaları ve varsayılan rotayı doğrula.');
+  const verify = [`${d.hostname} · ${d.role.toUpperCase()}`, '', ...checks].join('\n');
+  return { delta: full, full, audit: campusReport(inv), verify, rollback: 'Yeni kurulumda rollback: startup-config yüklenmeden cihazı fabrika/önceki baseline durumuna döndür. Canlı sisteme uygulanacaksa her cihazın orijinal config snapshotını geri yükle.' };
 }
 
 function securityConfig(vendor, side) {
@@ -357,6 +553,7 @@ function buildParams(intent, ids, facts, devs) {
 
 function vendorConfigs(vendor, protocol, side) {
   if (protocol === 'campus') return campusConfig(vendor, side);
+  if (protocol === 'wan') return wanConfig(vendor, side);
   if (protocol === 'hardening') return hardeningConfig(vendor, side);
   if (protocol === 'security') return securityConfig(vendor, side);
   if (protocol === 'cabling') protocol = 'vxlan';
@@ -366,16 +563,21 @@ function vendorConfigs(vendor, protocol, side) {
 
 function analyzePlan() {
   const intent = $('#intentInput').value.trim();
+  if (state.module === 'routing' && !state.forced && /dmvpn|nhrp|mgre|site.?to.?site|\bs2s\b|ipsec|ikev2|\bvpn\b|gre tunnel/i.test(intent)) {
+    setModule('wan'); $('#intentInput').value = intent; state.wanSwitched = true; return analyzePlan();
+  }
   let ids = ['routing', 'cabling', 'security', 'audit'].includes(state.module) ? deviceIds() : ['a', 'b'];
   let devsMap = {}; ids.forEach(i => { devsMap[i] = deviceInfo(i); });
-  if (state.module === 'campus') { const inv = campusInventory(); devsMap = { a: inv.core, b: inv.access }; ids = ['a', 'b']; }
+  if (['security', 'hardening'].includes(state.module)) ids.forEach(i => { devsMap[i].role = 'leaf'; });
+  if (state.module === 'wan') { wanApplyIntent(); const winv = wanInventory(); state.wanInv = winv; devsMap = {}; ids = winv.routers.map(r => { devsMap[r.id] = r; return r.id; }); }
+  if (state.module === 'campus') { campusApplyIntent(); const inv = campusInventory(); state.campusInv = inv; devsMap = {}; ids = inv.devices.map(d => { devsMap[d.id] = d; return d.id; }); }
   const all = ids.map(i => devsMap[i]);
   const a = devsMap[ids[0]], b = devsMap[ids[1]];
   const facts = {}; ids.forEach(i => { facts[i] = configFacts(devsMap[i]); });
   const fa = facts[ids[0]], fb = facts[ids[1]];
   state.params = buildParams(intent, ids, facts, devsMap);
   const P = state.params;
-  const topo = window.NETCUBE_FABRIC.buildTopology(ids, devsMap, $('#redundancy')?.value === 'Tek bağlantı' ? 'single' : 'dual');
+  const topo = (state.module === 'campus' || state.module === 'wan') ? { mode: 'campus', spines: [], leaves: [], links: [], linksOf: () => [], parallel: 1 } : window.NETCUBE_FABRIC.buildTopology(ids, devsMap, $('#redundancy')?.value === 'Tek bağlantı' ? 'single' : 'dual');
   state.ctx = { P, topo, ids, devs: devsMap };
   const AU = window.NETCUBE_AUDIT;
   const auditProfiles = auditProfilesFor(state.module);
@@ -400,8 +602,13 @@ function analyzePlan() {
   if (state.module === 'cabling') all.filter(x => !supports(x, 'vxlan')).forEach(x => notes.push(`${deviceLabel(x)} VXLAN EVPN desteklemiyor; fiziksel plan geçerli ama overlay config bu cihazda uygulanamaz.`));
   if (state.module === 'security') all.filter(x => !supports(x, 'dot1x')).forEach(x => notes.push(`${deviceLabel(x)} kullanıcı portu 802.1X/MAB için uygun bir profil değil; access sınıfı bir model seçin.`));
   const fallbackCount = notes.length;
+  if (state.module === 'campus') notes.push(...state.campusInv.notes);
+  if (state.module === 'wan') {
+    if (state.wanSwitched) { notes.push('Niyet VPN içerdiği için WAN / VPN modülüne geçildi.'); state.wanSwitched = false; }
+    (state.wanIntentMsgs || []).forEach(m => notes.push(`Niyetten: ${m}.`)); notes.push(...state.wanInv.notes);
+  }
   if (['vxlan', 'cabling', 'ospf', 'bgp'].includes(protocol)) notes.push(...P.notes);
-  all.filter(x => !deviceCaps(x).known).forEach(x => notes.push(`${deviceLabel(x)} katalogda yok; yetenekler doğrulanmadı.`));
+  if (state.module !== 'audit') all.filter(x => !deviceCaps(x).known).forEach(x => notes.push(`${deviceLabel(x)} katalogda yok; yetenekler doğrulanmadı.`));
   const bothLoaded = ids.every(i => facts[i].live);
   const existingOspf = ids.every(i => facts[i].ospf);
   const definitions = {
@@ -413,7 +620,7 @@ function analyzePlan() {
     ,security: { title: 'Secure Access + NAC', icon: 'SA', confidence: bothLoaded ? 92 : 83, reason: `${$('#nacPlatform').value} için 802.1X birincil, MAB fallback olacak şekilde pilot port politikası hazırlanıyor. RADIUS secret çıktıya yazılmıyor.`, tags: ['802.1X → MAB', 'CoA', '8 saat reauth', $('#nacPlatform').value] }
     ,cabling: { title: 'Leaf–Spine Fiziksel Plan + VXLAN EVPN', icon: 'FP', confidence: bothLoaded ? 91 : 82, reason: 'Boş olduğu beyan edilen uplink portları yedekli bağlantı için eşlendi. Kablo, port, IP ve VXLAN değişikliği aynı uygulama planında birleştirildi.', tags: [$('#linkSpeed').value, $('#mediaType').value, $('#redundancy').value, `VNI ${P.vni}`] }
     ,hardening: { title: state.mode==='new'?'Tam Switch Hardening Baseline':'Mevcut Config Hardening Planı', icon: 'SH', confidence: fa.live||state.mode==='new'?93:72, reason: state.mode==='new'?'Seçilen vendor ve cihaz profili için yönetim, erişim, logging, zaman, SNMPv3 ve Layer 2 korumalarını içeren tam başlangıç config’i hazırlanıyor.':'Yüklenen config denetleniyor; eksik kontroller için delta ve birleştirilmiş hedef config birlikte hazırlanıyor.', tags: ['SSH only', 'AAA + fallback', 'Management ACL', 'NTP · Syslog · SNMPv3'] }
-    ,campus: { title: 'Hardening Uygulanmış Campus Tasarımı', icon: 'CB', confidence: 90, reason: `${inputValue('coreCount','2')} core ve ${inputValue('accessCount','4')} access switch için management IP, VLAN, STP, trunk, DHCP Snooping, DAI, IP Source Guard ve port planı birlikte üretildi.`, tags: [`${inputValue('coreCount','2')} core`, `${inputValue('accessCount','4')} access`, `${campusVlans().length} VLAN`, inputValue('campusRedundancy','dual')==='dual'?'Çift uplink':'Tek uplink'] }
+    ,campus: { title: 'Hardening Uygulanmış Campus Tasarımı', icon: 'CB', confidence: 90, reason: `${state.campusInv ? state.campusInv.coreCount : 0} core ve ${state.campusInv ? state.campusInv.accessCount : 0} access switch için management IP, VLAN, STP, trunk, DHCP Snooping, DAI, IP Source Guard ve port planı birlikte üretildi.`, tags: [`${state.campusInv ? state.campusInv.coreCount : 0} core`, `${state.campusInv ? state.campusInv.accessCount : 0} access`, `${campusVlans().length} VLAN`, inputValue('campusRedundancy','dual')==='dual'?'Çift uplink':'Tek uplink'] }
   };
   const loadedCount = ids.filter(i => facts[i].live).length;
   definitions.audit = {
@@ -421,6 +628,12 @@ function analyzePlan() {
     reason: loadedCount ? `${loadedCount} cihazın yüklenen config'i seçili profillerle denetleniyor. Bulgular ciddiyete göre sıralanır; düzeltme komutları yer tutucularla hazırlanır, secret değerleri yazılmaz.` : "Denetim için en az bir cihazın running-config'ini yükleyin.",
     tags: auditProfilesFor('audit').map(p => AU.PROFILES[p])
   };
+  if (state.module === 'wan') {
+    const wi = state.wanInv; const tn = WAN_TYPE_NAME[wi.type].replace('{0}', wi.phase);
+    definitions.wan = { title: 'WAN / VPN Tasarımı', icon: 'VP', confidence: 88,
+      reason: `${wi.hubs.length} hub ve ${wi.spokes.length} spoke router için ${tn} ve ${wi.type === 's2s' && wi.overlay === 'static' ? 'statik rota' : wi.overlay.toUpperCase()} overlay yapılandırması üretildi; kripto parametreleri sabit, anahtarlar yer tutucudur.`,
+      tags: [tn, 'IKEv2 · AES-256', `${wi.routers.length} router`, wi.type === 's2s' && wi.overlay === 'static' ? 'statik rota' : wi.overlay.toUpperCase()] };
+  }
   const d = definitions[protocol];
   let alternatives = [
     { key: protocol, name: d.title, note: 'Önerilen · mevcut niyete en uygun', score: d.confidence, enabled: true },
@@ -459,6 +672,11 @@ function analyzePlan() {
     { key: 'audit', name: 'Seçili profillerle denetim', note: "Önerilen · yüklenen config'e göre", score: d.confidence, enabled: true },
     { key: 'hardening', name: 'Sıfırdan hardening baseline', note: 'Config yoksa Switch Hardening modülü tam hedef config üretir', score: 60, enabled: false }
   ];
+  if (protocol === 'wan') {
+    const wi = state.wanInv;
+    alternatives = [{ key: 'wan', name: WAN_TYPE_NAME[wi.type].replace('{0}', wi.phase), note: 'Önerilen · niyetine göre', score: d.confidence, enabled: true },
+      ...['dmvpn', 'gre', 's2s'].filter(t => t !== wi.type).map(t => ({ key: 'wan', name: WAN_TYPE_NAME[t].replace('{0}', wi.phase), note: 'Niyetinde türü belirterek seçebilirsin', score: 0, enabled: false }))];
+  }
   const outputs = {};
   ids.forEach(i => {
     const dev = devsMap[i], au = audits[i], lab = { ...dev, label: vendorName(dev.vendor) };
@@ -501,6 +719,8 @@ function renderPlan() {
       ? `<b>${miss} cihazın config'i eksik</b><span>Config yüklenmeyen cihazlar denetlenemez. Her cihaz kartında "Dosya seç" ile running-config yükleyin.</span>`
       : '<b>Denetim tamamlandı</b><span>Bulgular yüklenen config snapshot\'ına göre hesaplandı; çalışan sistemde (lisans, sürüm, runtime) doğrulayın.</span>';
   }
+  if (state.solution === 'wan') $('#warningBox').innerHTML = '<b>Yeni kurulum</b><span>Her router için config, girdiğin üretici/model/hostname bilgilerinden ve niyetinden üretildi; arayüz adlarını ve WAN maskelerini doğrulayın.</span>';
+  if (state.solution === 'campus') $('#warningBox').innerHTML = '<b>Yeni kurulum</b><span>Her cihaz için config, girdiğin üretici/model/hostname bilgilerinden ve niyetinden üretildi; port adlarını sahada doğrulayın.</span>';
   if (p.notes && p.notes.length) $('#warningBox').innerHTML += p.notes.map(n => `<span class="compat-note">⚠ ${n}</span>`).join('');
   $('#alternativeList').innerHTML = p.alternatives.map((a, i) => `<div class="alternative-row"><div><strong>${a.name}</strong><small>${a.note}</small></div><div class="score-track"><i style="width:${a.score}%"></i></div><span class="score">${a.enabled ? '%' + a.score : '—'}</span><button class="alt-action" data-alt="${a.key}" ${!a.enabled || i === 0 ? 'disabled' : ''}>${i === 0 ? 'Seçili' : 'İncele'}</button></div>`).join('');
   renderCablingPlan();
@@ -564,17 +784,24 @@ function renderFabricTopology() {
 }
 
 function renderCampusTopology() {
-  const card=$('#topologyCard'); if(state.solution!=='campus'){ renderFabricTopology(); return; } card.hidden=false; $('.subhead h3', card).textContent='Campus topolojisi'; $('.subhead p', card).textContent='Core, access, uplink ve VLAN kapsamı';
-  const inv=campusInventory(), width=960, height=380;
-  const coreY=80, accessY=265; const coreXs=Array.from({length:inv.coreCount},(_,i)=>width*(i+1)/(inv.coreCount+1));
-  const accessXs=Array.from({length:inv.accessCount},(_,i)=>width*(i+1)/(inv.accessCount+1));
-  const links=[];
-  accessXs.forEach((ax,ai)=>coreXs.forEach((cx,ci)=>{if(!inv.dual&&ci>0)return;links.push(`<line class="link ${ci>0?'secondary':''}" x1="${cx}" y1="120" x2="${ax}" y2="245"><title>ACCESS-${String(ai+1).padStart(2,'0')} Te1/1/${ci+1} → CORE-${String(ci+1).padStart(2,'0')} Te1/0/${ai+1}</title></line>`);}));
-  const cores=coreXs.map((x,i)=>`<g><rect class="node node-core" x="${x-92}" y="55" width="184" height="65" rx="12"/><text class="node-label core-label" x="${x}" y="80" text-anchor="middle">CORE-${String(i+1).padStart(2,'0')}</text><text class="node-meta core-meta" x="${x}" y="98" text-anchor="middle">${inv.core.model} · ${managementAddress(i+2)}</text><text class="node-meta core-meta" x="${x}" y="112" text-anchor="middle">STP ${i===0?'PRIMARY':'SECONDARY'}</text></g>`).join('');
-  const access=accessXs.map((x,i)=>`<g><rect class="node" x="${x-78}" y="245" width="156" height="68" rx="12"/><text class="node-label" x="${x}" y="269" text-anchor="middle">ACCESS-${String(i+1).padStart(2,'0')}</text><text class="node-meta" x="${x}" y="287" text-anchor="middle">${inv.access.model}</text><text class="node-meta" x="${x}" y="302" text-anchor="middle">${managementAddress(i+20)}</text></g>`).join('');
-  $('#topologyDiagram').innerHTML=`<svg viewBox="0 0 ${width} ${height}" aria-labelledby="topologyTitle"><title id="topologyTitle">${inv.coreCount} core ve ${inv.accessCount} access switch campus topolojisi</title>${links.join('')}${cores}${access}<text class="node-meta" x="480" y="352" text-anchor="middle">Düz çizgi: primary uplink · Kesikli çizgi: secondary uplink · Hover: port eşleşmesi</text></svg>`;
-  $('#topologySummary').textContent=`${inv.coreCount} CORE · ${inv.accessCount} ACCESS · ${links.length} LINK`;
-  $('#topologyLegend').innerHTML=inv.vlans.map(v=>`<span>VLAN ${v.id} · ${v.name}</span>`).join('');
+  if (state.solution === 'wan') { renderWanTopology(); return; }
+  const card = $('#topologyCard');
+  if (state.solution !== 'campus') { renderFabricTopology(); return; }
+  card.hidden = false;
+  $('.subhead h3', card).textContent = 'Campus topolojisi'; $('.subhead p', card).textContent = 'Core, access, uplink ve VLAN kapsamı';
+  const inv = state.campusInv || campusInventory();
+  const nc = Math.max(1, inv.coreCount), na = Math.max(1, inv.accessCount);
+  const width = Math.max(960, 104 * Math.max(nc, na)), height = 380;
+  const coreW = Math.min(190, width / nc - 16), accW = Math.min(160, width / na - 8);
+  const cx = {}, ax = {};
+  inv.cores.forEach((c, i) => { cx[c.id] = width * (i + 1) / (nc + 1); });
+  inv.accesses.forEach((a, i) => { ax[a.id] = width * (i + 1) / (na + 1); });
+  const lines = inv.links.map(l => `<line class="link ${l.u > 0 ? 'secondary' : ''}" x1="${cx[l.core.id]}" y1="120" x2="${ax[l.access.id]}" y2="245"><title>${escHtml(l.access.hostname)} ${escHtml(l.aPort)} → ${escHtml(l.core.hostname)} ${escHtml(l.cPort)}</title></line>`).join('');
+  const cores = inv.cores.map(c => svgNode(cx[c.id], 87, coreW, 68, 'node node-core', [escHtml(c.hostname), escHtml(c.model), escHtml(ipOnly(c.mgmt))])).join('');
+  const access = inv.accesses.map(a => svgNode(ax[a.id], 279, accW, 68, 'node', [escHtml(a.hostname), escHtml(a.model), escHtml(ipOnly(a.mgmt))])).join('');
+  $('#topologyDiagram').innerHTML = `<svg viewBox="0 0 ${width} ${height}" aria-labelledby="topologyTitle"><title id="topologyTitle">${inv.coreCount} core ve ${inv.accessCount} access switch campus topolojisi</title>${lines}${cores}${access}<text class="node-meta" x="${width / 2}" y="352" text-anchor="middle">Düz çizgi: primary uplink · Kesikli çizgi: secondary uplink · Hover: port eşleşmesi</text></svg>`;
+  $('#topologySummary').textContent = `${inv.coreCount} CORE · ${inv.accessCount} ACCESS · ${inv.links.length} LINK`;
+  $('#topologyLegend').innerHTML = inv.vlans.map(v => `<span>VLAN ${v.id} · ${escHtml(v.name)}</span>`).join('');
 }
 
 function fieldOrderText() {
@@ -592,7 +819,7 @@ function updateDeviceTabs() {
   $('#deviceTabs').innerHTML = visible.map(id => {
     const info = p.devices[id];
     let label;
-    if (state.solution === 'campus') label = id === 'a' ? 'Core' : 'Access';
+    if (state.solution === 'campus' || state.solution === 'wan') label = p.devices[id].hostname || id.toUpperCase();
     else {
       const spine = p.topo && window.NETCUBE_FABRIC.isSpine(p.topo, id);
       label = `${id.toUpperCase()}${spine ? ' · Spine' : ''}`;
@@ -620,7 +847,7 @@ function renderOutput() {
   $$('.output-nav button').forEach(b => b.classList.toggle('active', b.dataset.panel === state.outputPanel));
   $('#deltaCaption').textContent = state.solution === 'hardening'
     ? (state.mode === 'new' ? 'Yeni switch için baştan sona uygulanabilir baseline' : 'Mevcut config’e göre delta, hedef config ve hardening raporu')
-    : state.solution === 'campus' ? 'Tüm core ve access switchler için hardening uygulanmış tam config' : state.solution === 'audit' ? 'Bulgulara göre önerilen düzeltme komutları (secret değerleri yer tutucudur)' : 'Mevcut config üzerine uygulanacak minimum komutlar';
+    : state.solution === 'campus' ? 'Tüm core ve access switchler için hardening uygulanmış tam config' : state.solution === 'wan' ? 'Her router için tam VPN config (anahtarlar yer tutucudur)' : state.solution === 'audit' ? 'Bulgulara göre önerilen düzeltme komutları (secret değerleri yer tutucudur)' : 'Mevcut config üzerine uygulanacak minimum komutlar';
   let orders = state.solution === 'vxlan' || state.solution === 'cabling'
     ? ['Underlay erişimini ve loopback rotalarını doğrula', 'Spine/route-reflector EVPN komşuluklarını hazırla', 'Leaf VTEP ve VLAN–VNI eşleşmesini uygula', 'EVPN route ve MAC öğrenimini doğrula']
     : state.solution === 'campus'
@@ -630,6 +857,7 @@ function renderOutput() {
     : state.solution === 'security'
       ? ['NAC/RADIUS politikasını hazırla', 'Tek pilot portta uygula', 'Başarılı, MAB ve RADIUS-down senaryolarını test et', 'Doğrulama sonrası port grubuna genişlet']
       : ['Ön kontrol komutlarını çalıştır', 'Hedef cihaz konfigürasyonunu uygula', 'Kaynak cihaz konfigürasyonunu uygula', 'Komşuluk ve route tablosunu doğrula'];
+  if (state.solution === 'wan') orders = ['Router envanterini, WAN IP/maske ve LAN alt ağlarını doğrula', 'Önce hub router(lar)ı yapılandır (kripto + tünel + overlay)', 'Spoke router\'ları sırayla ekle; her birinde IKE/IPsec SA ve NHRP kaydını doğrula', 'Overlay komşuluklarını ve LAN rotalarını doğrula', 'MTU/MSS ve uygulama trafiği testlerini yap'];
   if (state.solution === 'audit') orders = ['Config yedeğini alın ve geri dönüş noktası oluşturun (Rollback sekmesi)', 'Kritik ve Yüksek bulguları önce pilot cihazda, konsol erişimi açıkken uygulayın', 'Yer tutucuları (<...>) kurumunuzun değerleriyle doldurun', 'Doğrulama komutlarını çalıştırın ve yeni config ile denetimi tekrarlayın', 'Puan ve bulguları onaylayıp diğer cihazlara yayın'];
   $('#applyOrder').innerHTML = orders.map(x => `<li>${x}</li>`).join('');
 }
@@ -652,17 +880,27 @@ function bindCard(card) {
     fillModelSelect($('.model', card), e.target.value);
     delete $('.ports', card).dataset.touched;
     applyModelDefaults(card);
+    if (state.module === 'audit') {
+      $('.model', card).value = CUSTOM_MODEL; $('.custom-model', card).hidden = true;
+      if (!$('.model-custom', card).value) $('.model-custom', card).value = 'config';
+      $('.os', card).value = OS_BY_VENDOR[$('.vendor', card).value]; $('.version', card).value = '';
+      renderDetectChip(card);
+    }
   });
+  $('.role', card).addEventListener('change', () => { if (state.module === 'audit') renderDetectChip(card); });
+  const ovr = $('.audit-override-toggle', card); if (ovr) ovr.addEventListener('click', () => card.classList.toggle('show-override'));
   $('.model', card).addEventListener('change', () => { delete $('.ports', card).dataset.touched; applyModelDefaults(card); });
   $('.model-custom', card).addEventListener('input', () => renderCaps(card));
   $('.ports', card).addEventListener('input', e => { e.target.dataset.touched = '1'; });
   $('.sample-config', card).addEventListener('click', () => {
     state.configs[id()] = sampleConfig($('.vendor', card).value, id());
+    if (state.module === 'audit') { delete card.dataset.detected; autoDetectCard(card); }
     const status = $('.config-status', card); status.textContent = `Örnek config · ${window.summarizeConfig(window.parseConfig(state.configs[id()]))}`; status.classList.add('loaded');
   });
   $('.config-file', card).addEventListener('change', async e => {
     const file = e.target.files[0]; if (!file) return;
     state.configs[id()] = await file.text();
+    if (state.module === 'audit') { delete card.dataset.detected; autoDetectCard(card); }
     const status = $('.config-status', card); status.textContent = `${file.name} · ${window.summarizeConfig(window.parseConfig(state.configs[id()]))}`; status.classList.add('loaded');
   });
   const rm = $('.remove-device', card);
@@ -685,6 +923,7 @@ function addDevice() {
   $('.device-title small', card).textContent = `Leaf ${ids.length + 1}`;
   $('.config-status', card).textContent = 'Henüz yüklenmedi'; $('.config-status', card).classList.remove('loaded');
   $('.config-file', card).value = '';
+  card.classList.remove('show-override'); delete card.dataset.detected; renderDetectChip(card);
   delete $('.ports', card).dataset.touched;
   const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'remove-device'; btn.setAttribute('aria-label', `Cihaz ${letter.toUpperCase()} kaldır`); btn.textContent = '×';
   $('.device-title', card).appendChild(btn);
@@ -695,7 +934,7 @@ function addDevice() {
   const pick = catalogFor(v).find(d => d.caps.vxlan && d.roles.includes('leaf')) || catalogFor(v)[0];
   fillModelSelect($('.model', card), v, pick && pick.model);
   $('.role', card).value = 'leaf';
-  bindCard(card); applyModelDefaults(card); refreshDeviceActions();
+  bindCard(card); applyModelDefaults(card); refreshDeviceActions(); retitleCards(state.module);
 }
 
 function removeDevice(id) {
@@ -704,10 +943,7 @@ function removeDevice(id) {
   delete state.configs[id]; refreshDeviceActions();
 }
 
-[['coreVendor', 'coreModel', 'C9500-24Y4C'], ['accessVendor', 'accessModel', 'C9300-48P']].forEach(([v, m, def]) => {
-  fillModelSelect($('#' + m), $('#' + v).value, def);
-  $('#' + v).addEventListener('change', () => fillModelSelect($('#' + m), $('#' + v).value));
-});
+$$('.device-card').forEach(card => { tagCard(card); ensureAuditUi(card); });
 $$('.device-card').forEach(card => {
   const defaults = { a: 'C9300X-24Y', b: 'CX 6300M' };
   fillModelSelect($('.model', card), $('.vendor', card).value, defaults[card.dataset.device]);
@@ -740,7 +976,7 @@ function auditProfilesFor(module) {
   if (module === 'hardening') return ['hardening', 'l2'];
   if (module === 'security') return ['dot1x'];
   if (module === 'audit') {
-    const map = { auditHardening: 'hardening', auditL2: 'l2', auditDot1x: 'dot1x', auditRouting: 'routing' };
+    const map = { auditHardening: 'hardening', auditL2: 'l2', auditDot1x: 'dot1x', auditRouting: 'routing', auditVpn: 'vpn' };
     return Object.keys(map).filter(id => { const el = document.getElementById(id); return el && el.checked; }).map(id => map[id]);
   }
   return [];
@@ -777,3 +1013,488 @@ function renderAuditCard() {
     return `<div class="audit-dev"><div class="audit-dev-head"><strong>${head}</strong><div class="audit-score ${cls}"><b>${au.score}</b><small>/100</small></div></div><div class="audit-bar ${cls}"><i style="width:${au.score}%"></i></div><div class="audit-counts">${chips}<span class="audit-pass">${au.counts.pass} başarılı · ${au.counts.na} uygulanamaz</span></div>${top ? `<ul class="audit-list">${top}</ul>` : ''}${fails.length > 8 ? `<p class="audit-more">+${fails.length - 8} bulgu daha: "Denetim raporu" sekmesinde</p>` : ''}</div>`;
   }).join('');
 }
+
+// Cihaz kartı başlıkları modüle göre: routing'de Kaynak/Hedef, diğerlerinde genel cihaz başlığı
+function retitleCards(module) {
+  const generic = { audit: 'Denetlenecek cihaz', security: "Erişim switch'i", hardening: 'Hardening uygulanacak switch' }[module];
+  $$('.device-card').forEach((c, idx) => {
+    const id = c.dataset.device, L = id.toUpperCase();
+    const strong = $('.device-title strong', c), small = $('.device-title small', c);
+    if (!strong || !small) return;
+    if (generic) { strong.textContent = `Cihaz ${L}`; small.textContent = generic; }
+    else if (id === 'a') { strong.textContent = 'Kaynak cihaz'; small.textContent = 'Merkez / Leaf 1'; }
+    else if (id === 'b') { strong.textContent = 'Hedef cihaz'; small.textContent = 'Şube / Leaf 2'; }
+    else { strong.textContent = `Cihaz ${L}`; small.textContent = `Leaf ${idx + 1}`; }
+  });
+}
+
+// ---------- Denetim modu: yalnızca config yükleme kartı ----------
+const OS_BY_VENDOR = { cisco: 'IOS-XE', aruba: 'AOS-CX', huawei: 'VRP' };
+
+function tagCard(card) {
+  [['vendor', 'f-vendor'], ['model', 'f-model'], ['os', 'f-os'], ['version', 'f-version'], ['role', 'f-role'], ['ports', 'f-ports']].forEach(([cls, f]) => {
+    const el = $('.' + cls, card); const lab = el && el.closest('label'); if (lab) lab.classList.add(f);
+  });
+}
+
+function ensureAuditUi(card) {
+  if ($('.audit-detect', card)) return;
+  const box = document.createElement('div'); box.className = 'audit-detect';
+  box.innerHTML = '<span class="detect-chip"></span><button type="button" class="text-button audit-override-toggle">Algılananı değiştir</button>';
+  const zone = $('.config-zone', card); zone.parentNode.insertBefore(box, zone.nextSibling);
+  renderDetectChip(card);
+}
+
+function renderDetectChip(card) {
+  const chip = $('.detect-chip', card); if (!chip) return;
+  const id = card.dataset.device;
+  if (!(state.configs[id] || '').trim()) { chip.textContent = 'Config yüklenince üretici ve rol otomatik algılanır'; return; }
+  const v = $('.vendor', card).value;
+  const host = $('.model', card).value === CUSTOM_MODEL ? $('.model-custom', card).value.trim() : '';
+  const role = $('.role', card).value === 'leaf' ? 'Access / leaf' : 'Core / spine';
+  const ver = $('.version', card).value.trim();
+  chip.textContent = `Algılanan: ${vendorName(v)} · ${OS_BY_VENDOR[v]}${ver ? ' ' + ver : ''} · ${host || 'hostname yok'} · ${role}`;
+}
+
+function autoDetectCard(card) {
+  const id = card.dataset.device, text = state.configs[id] || '';
+  if (!text.trim()) { delete card.dataset.detected; renderDetectChip(card); return; }
+  const d = window.NETCUBE_AUDIT.detect(text);
+  $('.vendor', card).value = d.vendor; $('.vendor-dot', card).className = `vendor-dot ${d.vendor}`;
+  fillModelSelect($('.model', card), d.vendor);
+  $('.model', card).value = CUSTOM_MODEL;
+  $('.model-custom', card).value = d.hostname || 'config';
+  $('.custom-model', card).hidden = true;
+  $('.os', card).value = OS_BY_VENDOR[d.vendor]; $('.version', card).value = d.version || '';
+  $('.role', card).value = d.role;
+  renderCaps(card); card.dataset.detected = '1';
+  renderDetectChip(card);
+}
+
+// ---------- Campus Builder: cihaz envanteri arayüzü ----------
+let campusSeq = 0;
+function campusModelsFor(vendor, role) {
+  const want = role === 'core' ? ['core', 'spine', 'distribution'] : ['access', 'leaf'];
+  const list = catalogFor(vendor).filter(d => d.roles.some(r => want.includes(r)));
+  return list.length ? list : catalogFor(vendor);
+}
+function newCampusRow(role, vendor, model) {
+  vendor = vendor || 'cisco';
+  const list = campusModelsFor(vendor, role);
+  campusSeq++;
+  return { id: `${role === 'core' ? 'c' : 'a'}${campusSeq}`, role, vendor, model: model || (list[0] ? list[0].model : CUSTOM_MODEL), custom: '', hostname: '', mgmt: '', ports: role === 'access' ? 48 : 0 };
+}
+function defaultCampusRows() {
+  campusSeq = 0;
+  return [newCampusRow('core', 'cisco', 'C9500-24Y4C'), newCampusRow('core', 'cisco', 'C9500-24Y4C'),
+    newCampusRow('access', 'cisco', 'C9300-48P'), newCampusRow('access', 'cisco', 'C9300-48P'), newCampusRow('access', 'cisco', 'C9300-48P'), newCampusRow('access', 'cisco', 'C9300-48P')];
+}
+const CAMPUS_MAX = { core: 4, access: 24 };
+
+function renderCampusRows() {
+  const host = $('#campusRows'); if (!host) return;
+  const counters = { core: 0, access: 0 };
+  host.innerHTML = state.campus.map(r => {
+    const n = ++counters[r.role];
+    const auto = `${r.role === 'core' ? 'CORE' : 'ACCESS'}-${String(n).padStart(2, '0')}`;
+    const vendorOpts = ['cisco', 'aruba', 'huawei'].map(v => `<option value="${v}"${v === r.vendor ? ' selected' : ''}>${vendorName(v)}</option>`).join('');
+    const modelOpts = campusModelsFor(r.vendor, r.role).map(m => `<option value="${escHtml(m.model)}"${m.model === r.model ? ' selected' : ''}>${escHtml(m.model)}</option>`).join('') + `<option value="${CUSTOM_MODEL}"${r.model === CUSTOM_MODEL ? ' selected' : ''}>Diğer (elle gir)…</option>`;
+    const portsOpts = [24, 48].map(p => `<option value="${p}"${Number(r.ports) === p ? ' selected' : ''}>${p}</option>`).join('');
+    return `<div class="campus-row ${r.role}" data-row="${r.id}"><span class="role-badge ${r.role}">${r.role === 'core' ? 'CORE' : 'ACCESS'}</span>
+      <label>Üretici<select class="cr-vendor">${vendorOpts}</select></label>
+      <label>Model<select class="cr-model">${modelOpts}</select></label>
+      <label class="cr-custom-wrap"${r.model === CUSTOM_MODEL ? '' : ' hidden'}>Özel model adı<input class="cr-custom" value="${escHtml(r.custom)}"></label>
+      <label>Hostname<input class="cr-host" placeholder="${auto}" value="${escHtml(r.hostname)}"></label>
+      <label>Yönetim IP<input class="cr-mgmt" placeholder="otomatik" value="${escHtml(r.mgmt)}"></label>
+      ${r.role === 'access' ? `<label>Kullanıcı portu<select class="cr-ports">${portsOpts}</select></label>` : ''}
+      <button type="button" class="cr-remove" aria-label="Cihazı kaldır">×</button></div>`;
+  }).join('');
+  const nc = counters.core, na = counters.access;
+  const count = $('#campusCount'); if (count) count.textContent = `${nc} core · ${na} access`;
+  const ac = $('#addCoreButton'), aa = $('#addAccessButton');
+  if (ac) ac.disabled = nc >= CAMPUS_MAX.core; if (aa) aa.disabled = na >= CAMPUS_MAX.access;
+}
+
+function campusRow(id) { return state.campus.find(r => r.id === id); }
+function campusTouch() { state.campusTouched = true; }
+
+function initCampusUi() {
+  state.campus = defaultCampusRows(); state.campusTouched = false;
+  const host = $('#campusRows'); if (!host) return;
+  host.addEventListener('change', e => {
+    const row = e.target.closest('.campus-row'); const r = row && campusRow(row.dataset.row); if (!r) return;
+    campusTouch();
+    if (e.target.classList.contains('cr-vendor')) { r.vendor = e.target.value; const l = campusModelsFor(r.vendor, r.role); r.model = l[0] ? l[0].model : CUSTOM_MODEL; renderCampusRows(); }
+    else if (e.target.classList.contains('cr-model')) { r.model = e.target.value; renderCampusRows(); }
+    else if (e.target.classList.contains('cr-ports')) r.ports = Number(e.target.value);
+  });
+  host.addEventListener('input', e => {
+    const row = e.target.closest('.campus-row'); const r = row && campusRow(row.dataset.row); if (!r) return;
+    campusTouch();
+    if (e.target.classList.contains('cr-host')) r.hostname = e.target.value;
+    else if (e.target.classList.contains('cr-mgmt')) r.mgmt = e.target.value;
+    else if (e.target.classList.contains('cr-custom')) r.custom = e.target.value;
+  });
+  host.addEventListener('click', e => {
+    const btn = e.target.closest('.cr-remove'); if (!btn) return;
+    const row = btn.closest('.campus-row'); const r = row && campusRow(row.dataset.row); if (!r) return;
+    const same = state.campus.filter(x => x.role === r.role).length; if (same <= 1) return;
+    state.campus = state.campus.filter(x => x.id !== r.id); campusTouch(); renderCampusRows();
+  });
+  const add = role => () => {
+    if (state.campus.filter(r => r.role === role).length >= CAMPUS_MAX[role]) return;
+    const last = state.campus.filter(r => r.role === role).at(-1);
+    const nr = newCampusRow(role, last && last.vendor, last && last.model);
+    const idx = role === 'core' ? state.campus.filter(r => r.role === 'core').length : state.campus.length;
+    state.campus.splice(idx, 0, nr); campusTouch(); renderCampusRows();
+  };
+  $('#addCoreButton').addEventListener('click', add('core'));
+  $('#addAccessButton').addEventListener('click', add('access'));
+  $('#campusPresetButton').addEventListener('click', () => { state.campus = defaultCampusRows(); state.campusTouched = false; renderCampusRows(); });
+  renderCampusRows();
+}
+initCampusUi();
+// ---------- WAN / VPN: router envanteri + niyet tabanlı üretim ----------
+const WAN_TYPE_NAME = { dmvpn: 'DMVPN Phase {0}', gre: 'GRE over IPsec', s2s: 'Site-to-site IPsec' };
+
+function wanFeatures(text) {
+  const t = (text || '').toLocaleLowerCase('tr-TR') + ' ' + (text || '').toLowerCase();
+  const f = { type: null, overlay: null, phase: 3, cryptoMap: false, labels: [] };
+  if (/dmvpn|nhrp|mgre|hub.?(?:and|ve)?.?spoke|hub-spoke/.test(t)) f.type = 'dmvpn';
+  else if (/\bgre\b/.test(t)) f.type = 'gre';
+  else if (/site.?to.?site|\bs2s\b|ipsec|\bvti\b|ikev2|\bvpn\b/.test(t)) f.type = 's2s';
+  if (/\bospf\b/.test(t)) f.overlay = 'ospf'; else if (/\bbgp\b/.test(t)) f.overlay = 'bgp'; else if (/eigrp/.test(t)) f.overlay = 'eigrp'; else if (/\bstatic\b|statik/.test(t)) f.overlay = 'static';
+  if (/phase ?2|faz ?2/.test(t)) f.phase = 2;
+  f.cryptoMap = /crypto map|policy.?based|politika tabanlı/.test(t);
+  return f;
+}
+
+function wanAddOne(net) { const o = net.split('.').map(Number); o[3] += 1; return o.join('.'); }
+
+function wanInventory() {
+  const rows = state.wan && state.wan.length ? state.wan : defaultWanRows();
+  const f = state.wanFeatures || wanFeatures('');
+  const notes = []; const seen = new Set(); const cnt = { hub: 0, spoke: 0 }; let autoWan = false;
+  const routers = rows.map(r => {
+    const role = r.role === 'hub' ? 'hub' : 'spoke'; const idx = cnt[role]++;
+    const vendor = r.vendor;
+    const model = (r.model === CUSTOM_MODEL ? (r.custom || '').trim() : r.model) || ((catalogFor(vendor).find(d => d.roles.includes('router')) || {}).model) || 'Router';
+    const hostname = (r.hostname || '').trim().replace(/\s+/g, '-') || `${role === 'hub' ? 'HUB' : 'SPOKE'}-${String(idx + 1).padStart(2, '0')}`;
+    if (seen.has(hostname)) notes.push(`Hostname ${hostname} birden fazla cihazda kullanılıyor.`); seen.add(hostname);
+    let wanTyped = (r.wan || '').trim().toLowerCase(); let dhcp = false; let wanIp = ''; let wanMask = '<WAN_MASK>';
+    if (wanTyped === 'dhcp') { if (role === 'hub') { notes.push(`${hostname}: hub için statik WAN IP gerekir; örnek adres kullanıldı.`); wanTyped = ''; autoWan = true; } else dhcp = true; }
+    if (!dhcp) {
+      const ip = wanTyped.split('/')[0];
+      if (ip && campusIsIp(ip)) { wanIp = ip; const pm = wanTyped.match(/\/(\d{1,2})$/); if (pm && Number(pm[1]) <= 30) wanMask = netInfo(wanTyped).mask; }
+      else { if (wanTyped) notes.push(`${hostname}: WAN IP '${r.wan}' geçersiz; örnek adres kullanıldı.`); wanIp = role === 'hub' ? `203.0.113.${10 + idx}` : `203.0.113.${50 + idx}`; wanMask = '255.255.255.0'; autoWan = true; }
+    }
+    let lanCidr = role === 'hub' ? `10.255.${idx}.0/24` : `10.${101 + idx}.0.0/24`;
+    const lanTyped = (r.lan || '').trim();
+    if (lanTyped) { const m = lanTyped.match(/^(\d{1,3}(?:\.\d{1,3}){3})\/(\d{1,2})$/); if (m && campusIsIp(m[1]) && Number(m[2]) <= 30) lanCidr = `${netInfo(lanTyped).net}/${m[2]}`; else notes.push(`${hostname}: LAN alt ağı '${lanTyped}' geçersiz (örn. 10.20.0.0/24); otomatik alt ağ kullanıldı.`); }
+    const lanNi = netInfo(lanCidr);
+    return { id: r.id, role, idx, vendor, model, hostname, wan: wanIp, wanMask, dhcp, os: OS_BY_VENDOR[vendor], version: 'Profil tabanlı', config: '',
+      wanIf: (r.wif || '').trim() || (vendor === 'cisco' ? 'GigabitEthernet0/0/0' : 'GigabitEthernet0/0/1'), lanIf: (r.lif || '').trim() || (vendor === 'cisco' ? 'GigabitEthernet0/0/1' : 'GigabitEthernet0/0/2'),
+      lanNet: lanNi.net, lanMask: lanNi.mask, lanWildcard: lanNi.wildcard, lanPrefix: lanNi.prefix, lanGw: wanAddOne(lanNi.net),
+      tun: role === 'hub' ? `172.31.0.${1 + idx}` : `172.31.0.${10 + idx}`, asn: 65001 + (role === 'hub' ? idx : 20 + idx) };
+  });
+  const hubs = routers.filter(r => r.role === 'hub'), spokes = routers.filter(r => r.role === 'spoke');
+  const all = routers;
+  // VPN türü ve yetenek kontrolü
+  let type = f.type || (hubs.length && routers.length >= 3 ? 'dmvpn' : 's2s'); const requested = type;
+  const can = (k) => all.every(r => supports(r, k));
+  if (type === 'dmvpn' && !can('dmvpn')) { type = can('gre') ? 'gre' : 's2s'; }
+  if (type === 'gre' && !can('gre')) type = 's2s';
+  if (type !== requested) {
+    const who = all.filter(r => !supports(r, requested === 'dmvpn' ? 'dmvpn' : 'gre')).map(r => `${vendorName(r.vendor)} ${r.model}`).join(' / ');
+    notes.push(`${WAN_TYPE_NAME[requested].replace('{0}', f.phase)} istendi ama ${who} desteklemiyor; ${WAN_TYPE_NAME[type].replace('{0}', f.phase)} önerildi.`);
+  }
+  if (!all.every(r => supports(r, 'ipsec'))) notes.push('Bazı router modelleri IPsec desteklemiyor; tünel şifrelemesi bu cihazlarda uygulanamaz.');
+  let overlay = f.overlay;
+  if (type === 'dmvpn') { if (!overlay || overlay === 'static') { if (overlay === 'static') notes.push('DMVPN için statik rota uygun değil; dinamik overlay (EIGRP) kullanıldı.'); overlay = 'eigrp'; } }
+  else if (type === 'gre') overlay = overlay || 'ospf';
+  else overlay = overlay || 'static';
+  if (overlay === 'eigrp' && !all.every(r => r.vendor === 'cisco')) { notes.push('EIGRP yalnız Cisco router\'larda çalışır; OSPF kullanıldı.'); overlay = 'ospf'; }
+  if (autoWan) notes.push('Girilmeyen WAN IP\'leri için örnek adresler (203.0.113.0/24) kullanıldı; gerçek adresleri girin.');
+  if (type === 'dmvpn' && !hubs.length) notes.push('DMVPN için en az bir hub gerekir.');
+  if (!hubs.length && type !== 'dmvpn' && routers.length > 2) notes.push('Hub tanımlı değil; router\'lar birbirine tam mesh tünellerle bağlandı.');
+  // tünel planı (DMVPN dışı)
+  const links = [];
+  if (type !== 'dmvpn') {
+    const pairs = hubs.length ? spokes.flatMap(s => hubs.map(h => [h, s])) : routers.flatMap((a, i) => routers.slice(i + 1).map(b => [a, b]));
+    const local = {}; routers.forEach(r => { local[r.id] = 0; });
+    pairs.forEach(([x, y], k) => {
+      const mixed = x.vendor !== y.vendor || x.vendor !== 'cisco';
+      links.push({ k, x, y, net: `172.31.${100 + k}.0`, xIp: `172.31.${100 + k}.1`, yIp: `172.31.${100 + k}.2`,
+        xTun: 100 + local[x.id]++, yTun: 100 + local[y.id]++, policy: type === 's2s' && (mixed || f.cryptoMap) });
+    });
+    if (type === 's2s' && links.some(l => l.policy && l.x.vendor !== l.y.vendor)) notes.push('Üretici karışık olduğu için bu tünellerde politika tabanlı IPsec (crypto map / ipsec policy) kullanıldı.');
+  }
+  const labels = [WAN_TYPE_NAME[type].replace('{0}', f.phase), `overlay: ${type === 's2s' && overlay === 'static' ? 'statik rota' : overlay.toUpperCase()}`];
+  if (type === 'dmvpn' && hubs.length > 1) labels.push('çift hub');
+  (f.cryptoMap && type === 's2s') && labels.push('crypto map');
+  notes.push(`Niyetten algılanan: ${labels.join(', ')}.`);
+  return { routers, hubs, spokes, type, overlay, phase: f.phase, links, notes, labels, f };
+}
+
+function wanKeyring(r, inv) {
+  const peers = inv.type === 'dmvpn' ? null : inv.links.filter(l => l.x.id === r.id || l.y.id === r.id).map(l => (l.x.id === r.id ? l.y : l.x));
+  return peers;
+}
+
+function wanCiscoIpsecObjects(r, inv, dmvpn) {
+  const L = [];
+  const peers = dmvpn ? null : wanKeyring(r, inv);
+  const nm = dmvpn ? 'DMVPN' : 'S2S';
+  L.push(`crypto ikev2 proposal ${nm}-PROP`, ' encryption aes-cbc-256', ' integrity sha256', ' group 14', `crypto ikev2 policy ${nm}-POL`, ` proposal ${nm}-PROP`);
+  L.push(`crypto ikev2 keyring ${nm}-KEYS`);
+  if (dmvpn) L.push(' peer ANY', '  address 0.0.0.0 0.0.0.0', '  pre-shared-key <IKE_PSK>');
+  else peers.forEach(p => L.push(` peer ${p.hostname}`, `  address ${p.wan}`, `  pre-shared-key <IKE_PSK_${p.hostname.replace(/-/g, '_')}>`));
+  L.push(`crypto ikev2 profile ${nm}-IKEV2`);
+  if (dmvpn) L.push(' match identity remote address 0.0.0.0');
+  else peers.forEach(p => L.push(` match identity remote address ${p.wan} 255.255.255.255`));
+  L.push(' authentication remote pre-share', ' authentication local pre-share', ` keyring local ${nm}-KEYS`, ' dpd 30 5 on-demand');
+  const mode = dmvpn || inv.type === 'gre' ? 'transport' : 'tunnel';
+  L.push(`crypto ipsec transform-set ${nm}-TS esp-aes 256 esp-sha256-hmac`, ` mode ${mode}`, `crypto ipsec profile ${nm}-IPSEC`, ` set transform-set ${nm}-TS`, ` set ikev2-profile ${nm}-IKEV2`);
+  return L;
+}
+
+function wanCiscoBase(r) {
+  return [`hostname ${r.hostname}`, 'ip domain-name corp.local', 'ip ssh version 2',
+    `interface ${r.wanIf}`, ' description WAN', r.dhcp ? ' ip address dhcp' : ` ip address ${r.wan} ${r.wanMask}`, ' no shutdown',
+    `interface ${r.lanIf}`, ' description LAN', ` ip address ${r.lanGw} ${r.lanMask}`, ' no shutdown'];
+}
+
+function wanCiscoOverlay(r, inv, tunIfs) {
+  const L = []; const ov = inv.overlay;
+  const lanNet = `${r.lanNet} ${r.lanWildcard}`;
+  if (ov === 'eigrp') L.push('router eigrp 100', ' network 172.31.0.0 0.0.255.255', ` network ${lanNet}`, ` passive-interface ${r.lanIf}`);
+  if (ov === 'ospf') L.push('router ospf 10', ` router-id ${r.tun}`, ' network 172.31.0.0 0.0.255.255 area 0', ` network ${lanNet} area 0`, ` passive-interface ${r.lanIf}`);
+  if (ov === 'bgp') {
+    if (inv.type === 'dmvpn') {
+      if (r.role === 'hub') L.push('router bgp 65000', ` bgp router-id ${r.tun}`, ' bgp listen range 172.31.0.0/24 peer-group DMVPN-SPOKES', ' neighbor DMVPN-SPOKES peer-group', ' neighbor DMVPN-SPOKES remote-as 65000', ' address-family ipv4', `  network ${r.lanNet} mask ${r.lanMask}`, '  neighbor DMVPN-SPOKES route-reflector-client', '  neighbor DMVPN-SPOKES activate');
+      else L.push('router bgp 65000', ` bgp router-id ${r.tun}`, ...inv.hubs.flatMap(h => [` neighbor ${h.tun} remote-as 65000`]), ' address-family ipv4', `  network ${r.lanNet} mask ${r.lanMask}`, ...inv.hubs.map(h => `  neighbor ${h.tun} activate`));
+    } else {
+      const mine = inv.links.filter(l => l.x.id === r.id || l.y.id === r.id).map(l => { const x = l.x.id === r.id; return { peer: x ? l.y : l.x, peerIp: x ? l.yIp : l.xIp }; });
+      L.push(`router bgp ${r.asn}`, ` bgp router-id ${r.tun}`, ...mine.map(m => ` neighbor ${m.peerIp} remote-as ${m.peer.asn}`), ' address-family ipv4', `  network ${r.lanNet} mask ${r.lanMask}`, ...mine.map(m => `  neighbor ${m.peerIp} activate`));
+    }
+  }
+  return L;
+}
+
+function wanCiscoDevice(r, inv) {
+  const L = [`! ===== ${r.hostname} · ${r.model} · ${r.role.toUpperCase()} =====`, '! Arayüz adlarını model ve port numaralandırmasına göre doğrulayın', ...wanCiscoBase(r)];
+  const f = inv.f; const mtu = [' ip mtu 1400', ' ip tcp adjust-mss 1360'];
+  if (inv.type === 'dmvpn') {
+    L.push(...wanCiscoIpsecObjects(r, inv, true));
+    const primary = inv.hubs[0];
+    const tun = ['interface Tunnel100', ` description DMVPN-PHASE${inv.phase}`, ` ip address ${r.tun} 255.255.255.0`, ' no ip redirects', ...mtu, ' ip nhrp network-id 100', ' ip nhrp authentication <NHRP_KEY>'];
+    if (r.role === 'hub') {
+      tun.push(' ip nhrp map multicast dynamic');
+      if (inv.phase === 3) tun.push(' ip nhrp redirect');
+      if (r !== primary) tun.push(` ip nhrp nhs ${primary.tun} nbma ${primary.wan} multicast`);
+    } else {
+      inv.hubs.forEach(h => tun.push(` ip nhrp nhs ${h.tun} nbma ${h.wan} multicast`));
+      if (inv.phase === 3) tun.push(' ip nhrp shortcut');
+    }
+    tun.push(` tunnel source ${r.wanIf}`, ' tunnel mode gre multipoint', ' tunnel key 100', ' tunnel protection ipsec profile DMVPN-IPSEC');
+    if (inv.overlay === 'eigrp') {
+      if (r.role === 'hub') tun.push(inv.phase === 3 ? ' ip summary-address eigrp 100 0.0.0.0 0.0.0.0' : ' no ip next-hop-self eigrp 100', ' no ip split-horizon eigrp 100');
+    }
+    if (inv.overlay === 'ospf') tun.push(' ip ospf network broadcast', ` ip ospf priority ${r.role === 'hub' ? (r === primary ? 255 : 200) : 0}`);
+    L.push(...tun, ...wanCiscoOverlay(r, inv));
+    if (r.role === 'hub' && inv.overlay === 'eigrp' && inv.phase === 3) L.push('! Phase 3: hub, spoke LAN\'lerini özetleyerek gönderir; spoke-to-spoke yollar NHRP shortcut ile kurulur');
+    return L.concat('end').join('\n');
+  }
+  // site-to-site / GRE over IPsec
+  const mine = inv.links.filter(l => l.x.id === r.id || l.y.id === r.id).map(l => { const x = l.x.id === r.id; return { l, peer: x ? l.y : l.x, myIp: x ? l.xIp : l.yIp, peerIp: x ? l.yIp : l.xIp, tun: x ? l.xTun : l.yTun }; });
+  const vti = mine.filter(m => !m.l.policy), pol = mine.filter(m => m.l.policy);
+  if (mine.length) L.push(...wanCiscoIpsecObjects(r, { ...inv, links: mine.map(m => m.l) }, false));
+  vti.forEach(m => L.push(`interface Tunnel${m.tun}`, ` description ${inv.type === 'gre' ? 'GRE-IPSEC' : 'S2S-VTI'}-TO-${m.peer.hostname}`, ` ip address ${m.myIp} 255.255.255.252`, ...mtu, ` tunnel source ${r.wanIf}`, inv.type === 'gre' ? ' tunnel mode gre ip' : ' tunnel mode ipsec ipv4', ` tunnel destination ${m.peer.wan}`, ` tunnel protection ipsec profile S2S-IPSEC`));
+  if (pol.length) {
+    pol.forEach((m, i) => {
+      L.push(`ip access-list extended VPN-${m.peer.hostname}`, ` permit ip ${r.lanNet} ${r.lanWildcard} ${m.peer.lanNet} ${m.peer.lanWildcard}`);
+    });
+    // crypto map: her peer için ayrı sıra numarası
+    pol.forEach((m, i) => L.push(`crypto map S2S-MAP ${10 * (i + 1)} ipsec-isakmp`, ` set peer ${m.peer.wan}`, ' set transform-set S2S-TS', ' set ikev2-profile S2S-IKEV2', ` match address VPN-${m.peer.hostname}`));
+    L.push(`interface ${r.wanIf}`, ' crypto map S2S-MAP');
+  }
+  // yönlendirme
+  if (inv.overlay === 'static' || (inv.type === 's2s' && pol.length && !vti.length)) {
+    mine.forEach(m => {
+      const remote = inv.hubs.length && r.role === 'spoke' ? inv.routers.filter(x => x.id !== r.id) : [m.peer];
+      if (m.l.policy) return; // politika tabanlı: şifreleme ACL'si trafiği yakalar, rota WAN next-hop'a gider
+      remote.forEach(x => { const ad = inv.hubs.length && r.role === 'spoke' && m.peer !== inv.hubs[0] ? ' 10' : ''; L.push(`ip route ${x.lanNet} ${x.lanMask} ${m.peerIp}${ad}`); });
+    });
+  } else L.push(...wanCiscoOverlay(r, inv));
+  if (pol.length) L.push('! Politika tabanlı tünellerde uzak LAN\'e giden rota WAN next-hop üzerinden olmalı (ip route <REMOTE_LAN> <MASK> <WAN_NEXT_HOP>)');
+  return L.concat('end').join('\n');
+}
+
+function wanHuaweiDevice(r, inv) {
+  const L = [`# ===== ${r.hostname} · ${r.model} · ${r.role.toUpperCase()} =====`, '# Arayüz adlarını model ve port numaralandırmasına göre doğrulayın', `sysname ${r.hostname}`, 'stelnet server enable',
+    `interface ${r.wanIf}`, ' description WAN', r.dhcp ? ' ip address dhcp-alloc' : ` ip address ${r.wan} ${r.wanMask}`, 'quit',
+    `interface ${r.lanIf}`, ' description LAN', ` ip address ${r.lanGw} ${r.lanMask}`, 'quit'];
+  const mine = inv.links.filter(l => l.x.id === r.id || l.y.id === r.id).map(l => { const x = l.x.id === r.id; return { l, peer: x ? l.y : l.x, myIp: x ? l.xIp : l.yIp, peerIp: x ? l.yIp : l.xIp, tun: x ? l.xTun : l.yTun }; });
+  L.push('ike proposal 10', ' encryption-algorithm aes-256', ' dh group14', ' authentication-algorithm sha2-256', ' integrity-algorithm hmac-sha2-256', 'quit',
+    'ipsec proposal S2S', ' esp authentication-algorithm sha2-256', ' esp encryption-algorithm aes-256', ` encapsulation-mode ${inv.type === 'gre' ? 'transport' : 'tunnel'}`, 'quit');
+  mine.forEach((m, i) => {
+    const n = 3000 + m.l.k; const peerName = m.peer.hostname.replace(/-/g, '_');
+    if (inv.type === 'gre') {
+      L.push(`interface Tunnel0/0/${m.tun - 100}`, ` ip address ${m.myIp} 255.255.255.252`, ' tunnel-protocol gre', ` source ${r.wanIf}`, ` destination ${m.peer.wan}`, ' mtu 1400', ' tcp adjust-mss 1360', 'quit');
+      L.push(`acl number ${n}`, ` rule 5 permit gre source ${r.wan} 0 destination ${m.peer.wan} 0`, 'quit');
+    } else {
+      L.push(`acl number ${n}`, ` rule 5 permit ip source ${r.lanNet} ${r.lanWildcard} destination ${m.peer.lanNet} ${m.peer.lanWildcard}`, 'quit');
+    }
+    L.push(`ike peer ${peerName} v2`, ' pre-shared-key cipher <IKE_PSK_' + peerName + '>', ' ike-proposal 10', ` remote-address ${m.peer.wan}`, ' dpd type periodic', ' dpd idle-time 30', 'quit');
+    L.push(`ipsec policy S2S-POLICY ${10 * (i + 1)} isakmp`, ` security acl ${n}`, ` ike-peer ${peerName}`, ' proposal S2S', 'quit');
+  });
+  L.push(`interface ${r.wanIf}`, ' ipsec policy S2S-POLICY', 'quit');
+  if (inv.overlay === 'static') {
+    mine.forEach(m => { if (m.l.policy) return; const remote = inv.hubs.length && r.role === 'spoke' ? inv.routers.filter(x => x.id !== r.id) : [m.peer]; remote.forEach(x => L.push(`ip route-static ${x.lanNet} ${x.lanMask} ${m.peerIp}`)); });
+    if (mine.some(m => m.l.policy)) L.push('# Politika tabanlı tünellerde uzak LAN\'e giden rota WAN next-hop üzerinden olmalı: ip route-static <REMOTE_LAN> <MASK> <WAN_NEXT_HOP>');
+  }
+  if (inv.overlay === 'ospf') L.push('ospf 10 router-id ' + r.tun, ' area 0.0.0.0', '  network 172.31.0.0 0.0.255.255', `  network ${r.lanNet} ${r.lanWildcard}`, ` silent-interface ${r.lanIf}`, 'quit');
+  else if (inv.overlay === 'bgp') { L.push(`bgp ${r.asn}`, ...mine.map(m => ` peer ${m.peerIp} as-number ${m.peer.asn}`), ' ipv4-family unicast', `  network ${r.lanNet} ${r.lanMask}`, ...mine.map(m => `  peer ${m.peerIp} enable`), ' quit', 'quit'); }
+  return L.concat('return').join('\n');
+}
+
+function wanReport(inv) {
+  const L = ['WAN / VPN TASARIM RAPORU', '', `VPN türü: ${WAN_TYPE_NAME[inv.type].replace('{0}', inv.phase)}`, `Overlay yönlendirme: ${inv.type === 's2s' && inv.overlay === 'static' ? 'statik rota' : inv.overlay.toUpperCase()}`,
+    `${inv.hubs.length} hub · ${inv.spokes.length} spoke`, '', 'ROUTER ENVANTERİ'];
+  inv.routers.forEach(r => L.push(`- ${r.hostname} (${r.role}) · ${vendorName(r.vendor)} ${r.model} · WAN ${r.dhcp ? 'DHCP' : r.wan} · LAN ${r.lanNet}/${r.lanPrefix}`));
+  L.push('', 'TÜNEL PLANI');
+  if (inv.type === 'dmvpn') inv.routers.forEach(r => L.push(`${r.hostname} Tunnel100 ${r.tun}/24${r.role === 'hub' ? ' (NHS)' : ''}`));
+  else inv.links.forEach(l => L.push(`${l.x.hostname} Tunnel${l.xTun} ${l.xIp} ↔ ${l.y.hostname} Tunnel${l.yTun} ${l.yIp}${l.policy ? ' (politika tabanlı)' : ''}`));
+  L.push('', 'KRİPTO PARAMETRELERİ', '- IKEv2 · AES-256 · SHA-256 · DH group 14 · DPD açık', '- IPsec ESP · AES-256 · SHA-256', '- Tünel MTU 1400 · TCP MSS 1360');
+  L.push('', 'GÜVENLİK NOTLARI', '- Pre-shared key ve NHRP anahtarları yer tutucudur; üretimde güçlü ve ayrı anahtarlar kullanın, mümkünse sertifika (PKI) tercih edin.');
+  if (inv.type === 'dmvpn') L.push('- NHRP kimlik doğrulaması ve tunnel key tanımlıdır.', inv.phase === 3 ? '- Phase 3: hub özet rota gönderir, spoke-to-spoke tüneller NHRP redirect/shortcut ile kurulur.' : '- Phase 2: spoke-to-spoke yönlendirme için hub next-hop korur.');
+  L.push('- Lisans: IPsec/DMVPN için Security (K9) lisansı ve şifreleme throughput lisansı gerekebilir.', '', 'VARSAYIM', 'Gerçek arayüz adları, WAN maskeleri, lisans ve komut desteği tam model/sürüm profiliyle doğrulanmalıdır.');
+  return L.join('\n');
+}
+
+function wanConfig(vendor, side) {
+  const inv = state.wanInv || wanInventory();
+  const r = inv.routers.find(x => x.id === side);
+  const full = vendor === 'cisco' ? wanCiscoDevice(r, inv) : wanHuaweiDevice(r, inv);
+  const V = vendor === 'cisco'
+    ? (inv.type === 'dmvpn' ? ['show dmvpn detail', 'show ip nhrp', 'show crypto ikev2 sa', 'show crypto ipsec sa', 'show interface tunnel 100', 'show ip route', inv.overlay === 'eigrp' ? 'show ip eigrp neighbors' : inv.overlay === 'ospf' ? 'show ip ospf neighbor' : 'show ip bgp summary'] : ['show crypto ikev2 sa', 'show crypto ipsec sa', 'show crypto map', 'show ip interface brief | include Tunnel', 'show ip route', 'ping <REMOTE_LAN_IP> source ' + r.lanIf])
+    : ['display ike sa', 'display ipsec sa', 'display ipsec statistics', 'display ip routing-table', 'ping -a ' + r.lanGw + ' <REMOTE_LAN_IP>'];
+  const verify = [`${r.hostname} · ${r.role.toUpperCase()}`, '', ...V.map((c, i) => c), '', '1. IKE/IPsec SA\'ların kurulduğunu ve sayaçların arttığını doğrula.', '2. Uzak LAN\'lere yönlendirme ve ping testi yap.', '3. MTU/MSS: büyük paketlerle (ping size 1400, DF) fragmentasyon olmadığını doğrula.'];
+  return { delta: full, full, audit: wanReport(inv), verify: verify.join('\n'), rollback: 'Yedek alın (copy running-config flash:pre-vpn.cfg / save pre-vpn.cfg). Geri dönüş: tünel arayüzlerini, crypto/ipsec nesnelerini ve crypto map\'i kaldırın veya yedek config\'i geri yükleyin; WAN erişimini (konsol/OOB) kaybetmeden önce yönlendirme değişikliklerini ayrı uygulayın.' };
+}
+
+
+// ---------- WAN / VPN: router envanteri arayüzü ----------
+let wanSeq = 0;
+const WAN_VENDORS = ['cisco', 'huawei'];
+const WAN_MAX = { hub: 2, spoke: 12 };
+function wanModelsFor(vendor) { return catalogFor(vendor).filter(d => d.roles.includes('router')); }
+function newWanRow(role, vendor, model) {
+  vendor = vendor || 'cisco'; const list = wanModelsFor(vendor); wanSeq++;
+  return { id: `${role === 'hub' ? 'h' : 's'}${wanSeq}`, role, vendor, model: model || (list[0] ? list[0].model : CUSTOM_MODEL), custom: '', hostname: '', wan: '', lan: '', wif: '', lif: '' };
+}
+function defaultWanRows() {
+  wanSeq = 0;
+  return [newWanRow('hub', 'cisco', 'ISR4431'), newWanRow('spoke', 'cisco', 'ISR4331'), newWanRow('spoke', 'cisco', 'ISR4331'), newWanRow('spoke', 'cisco', 'ISR4331')];
+}
+
+function renderWanRows() {
+  const host = $('#wanRows'); if (!host) return;
+  const counters = { hub: 0, spoke: 0 };
+  host.innerHTML = state.wan.map(r => {
+    const n = ++counters[r.role];
+    const auto = `${r.role === 'hub' ? 'HUB' : 'SPOKE'}-${String(n).padStart(2, '0')}`;
+    const vendorOpts = WAN_VENDORS.map(v => `<option value="${v}"${v === r.vendor ? ' selected' : ''}>${vendorName(v)}</option>`).join('');
+    const modelOpts = wanModelsFor(r.vendor).map(m => `<option value="${escHtml(m.model)}"${m.model === r.model ? ' selected' : ''}>${escHtml(m.model)}</option>`).join('') + `<option value="${CUSTOM_MODEL}"${r.model === CUSTOM_MODEL ? ' selected' : ''}>Diğer (elle gir)…</option>`;
+    return `<div class="campus-row wan-row ${r.role}" data-row="${r.id}"><span class="role-badge ${r.role === 'hub' ? 'core' : 'access'}">${r.role === 'hub' ? 'HUB' : 'SPOKE'}</span>
+      <label>Üretici<select class="wr-vendor">${vendorOpts}</select></label>
+      <label>Model<select class="wr-model">${modelOpts}</select></label>
+      <label class="cr-custom-wrap"${r.model === CUSTOM_MODEL ? '' : ' hidden'}>Özel model adı<input class="wr-custom" value="${escHtml(r.custom)}"></label>
+      <label>Hostname<input class="wr-host" placeholder="${auto}" value="${escHtml(r.hostname)}"></label>
+      <label>WAN IP<input class="wr-wan" placeholder="${r.role === 'hub' ? 'örn. 203.0.113.10/29' : 'örn. 198.51.100.5/29 veya dhcp'}" value="${escHtml(r.wan)}"></label>
+      <label>LAN alt ağı<input class="wr-lan" placeholder="otomatik" value="${escHtml(r.lan)}"></label>
+      <label>WAN arayüzü<input class="wr-wif" placeholder="${r.vendor === 'cisco' ? 'GigabitEthernet0/0/0' : 'GigabitEthernet0/0/1'}" value="${escHtml(r.wif || '')}"></label>
+      <label>LAN arayüzü<input class="wr-lif" placeholder="${r.vendor === 'cisco' ? 'GigabitEthernet0/0/1' : 'GigabitEthernet0/0/2'}" value="${escHtml(r.lif || '')}"></label>
+      <button type="button" class="cr-remove wr-remove" aria-label="Cihazı kaldır">×</button></div>`;
+  }).join('');
+  const nh = counters.hub, ns = counters.spoke;
+  const c = $('#wanCount'); if (c) c.textContent = `${nh} hub · ${ns} spoke`;
+  const ah = $('#addHubButton'), as = $('#addSpokeButton'); if (ah) ah.disabled = nh >= WAN_MAX.hub; if (as) as.disabled = ns >= WAN_MAX.spoke;
+}
+
+function wanRow(id) { return state.wan.find(r => r.id === id); }
+
+function wanApplyIntent() {
+  const text = ($('#intentInput') || {}).value || '';
+  const f = wanFeatures(text); state.wanFeatures = f;
+  const t = text.toLowerCase(); const msgs = [];
+  const h = t.match(/(\d{1,2})\s*(?:adet\s*)?hub/), s = t.match(/(\d{1,2})\s*(?:adet\s*)?(?:spoke|şube|branch|site|uzak)/);
+  if ((h || s) && !state.wanTouched) {
+    const nh = state.wan.filter(r => r.role === 'hub').length, ns = state.wan.filter(r => r.role === 'spoke').length;
+    const wh = h ? Math.max(1, Math.min(WAN_MAX.hub, Number(h[1]))) : nh, ws = s ? Math.max(1, Math.min(WAN_MAX.spoke, Number(s[1]))) : ns;
+    if (wh !== nh || ws !== ns) {
+      const lh = state.wan.filter(r => r.role === 'hub').at(-1) || { vendor: 'cisco' }, ls = state.wan.filter(r => r.role === 'spoke').at(-1) || { vendor: 'cisco' };
+      const hubs = state.wan.filter(r => r.role === 'hub').slice(0, wh); while (hubs.length < wh) hubs.push(newWanRow('hub', lh.vendor, lh.model));
+      const spokes = state.wan.filter(r => r.role === 'spoke').slice(0, ws); while (spokes.length < ws) spokes.push(newWanRow('spoke', ls.vendor, ls.model));
+      state.wan = [...hubs, ...spokes]; renderWanRows(); msgs.push(`cihaz sayısı niyetten alındı (${wh} hub, ${ws} spoke)`);
+    }
+  }
+  state.wanIntentMsgs = msgs; return f;
+}
+
+function renderWanTopology() {
+  const card = $('#topologyCard'); const inv = state.wanInv || wanInventory();
+  card.hidden = false;
+  $('.subhead h3', card).textContent = 'WAN / VPN topolojisi'; $('.subhead p', card).textContent = 'Hub, spoke ve tünel bağlantıları';
+  const R = inv.routers, W = Math.max(960, 110 * Math.max(inv.hubs.length, inv.spokes.length)), H = 380; const pos = {};
+  if (inv.hubs.length) {
+    inv.hubs.forEach((r, i) => { pos[r.id] = { x: W * (i + 1) / (inv.hubs.length + 1), y: 87 }; });
+    inv.spokes.forEach((r, i) => { pos[r.id] = { x: W * (i + 1) / (inv.spokes.length + 1), y: 279 }; });
+  } else R.forEach((r, i) => { const a = -Math.PI / 2 + 2 * Math.PI * i / R.length; pos[r.id] = R.length === 2 ? { x: W * (i + 1) / 3, y: 190 } : { x: W / 2 + 320 * Math.cos(a), y: 190 + 120 * Math.sin(a) }; });
+  const pairs = inv.type === 'dmvpn' ? inv.spokes.flatMap(s => inv.hubs.map((h, hi) => ({ a: h, b: s, sec: hi > 0, tip: `${s.hostname} Tunnel100 ${s.tun} → ${h.hostname} ${h.tun}` })))
+    : inv.links.map(l => ({ a: l.x, b: l.y, sec: false, tip: `${l.x.hostname} Tunnel${l.xTun} ${l.xIp} ↔ ${l.y.hostname} Tunnel${l.yTun} ${l.yIp}${l.policy ? ' (policy)' : ''}` }));
+  const lines = pairs.map(p => `<line class="link ${p.sec ? 'secondary' : ''}" x1="${pos[p.a.id].x}" y1="${pos[p.a.id].y}" x2="${pos[p.b.id].x}" y2="${pos[p.b.id].y}"><title>${escHtml(p.tip)}</title></line>`).join('');
+  const nodes = R.map(r => svgNode(pos[r.id].x, pos[r.id].y, Math.min(180, W / Math.max(R.length, 2) - 12), 68, r.role === 'hub' ? 'node node-core' : 'node', [escHtml(r.hostname), escHtml(r.model), escHtml(r.dhcp ? 'WAN DHCP' : r.wan)])).join('');
+  $('#topologyDiagram').innerHTML = `<svg viewBox="0 0 ${W} ${H}"><title>${R.length} routerlı WAN / VPN topolojisi</title>${lines}${nodes}<text class="node-meta" x="${W / 2}" y="352" text-anchor="middle">${escHtml(WAN_TYPE_NAME[inv.type].replace('{0}', inv.phase))} · Kesikli çizgi: ikinci hub tüneli · Hover: tünel adresleri</text></svg>`;
+  $('#topologySummary').textContent = `${inv.hubs.length} HUB · ${inv.spokes.length} SPOKE · ${pairs.length} TÜNEL`;
+  $('#topologyLegend').innerHTML = R.map(r => `<span>${escHtml(r.hostname)} · LAN ${escHtml(r.lanNet)}/${r.lanPrefix}</span>`).join('');
+}
+
+function initWanUi() {
+  state.wan = defaultWanRows(); state.wanTouched = false;
+  const host = $('#wanRows'); if (!host) return;
+  const touch = () => { state.wanTouched = true; };
+  host.addEventListener('change', e => {
+    const row = e.target.closest('.wan-row'); const r = row && wanRow(row.dataset.row); if (!r) return; touch();
+    if (e.target.classList.contains('wr-vendor')) { r.vendor = e.target.value; const l = wanModelsFor(r.vendor); r.model = l[0] ? l[0].model : CUSTOM_MODEL; renderWanRows(); }
+    else if (e.target.classList.contains('wr-model')) { r.model = e.target.value; renderWanRows(); }
+  });
+  host.addEventListener('input', e => {
+    const row = e.target.closest('.wan-row'); const r = row && wanRow(row.dataset.row); if (!r) return; touch();
+    if (e.target.classList.contains('wr-host')) r.hostname = e.target.value;
+    else if (e.target.classList.contains('wr-wan')) r.wan = e.target.value;
+    else if (e.target.classList.contains('wr-lan')) r.lan = e.target.value;
+    else if (e.target.classList.contains('wr-wif')) r.wif = e.target.value;
+    else if (e.target.classList.contains('wr-lif')) r.lif = e.target.value;
+    else if (e.target.classList.contains('wr-custom')) r.custom = e.target.value;
+  });
+  host.addEventListener('click', e => {
+    const btn = e.target.closest('.wr-remove'); if (!btn) return;
+    const r = wanRow(btn.closest('.wan-row').dataset.row); if (!r) return;
+    if (state.wan.filter(x => x.role === r.role).length <= 1 && r.role === 'spoke') return;
+    if (state.wan.length <= 2) return;
+    state.wan = state.wan.filter(x => x.id !== r.id); touch(); renderWanRows();
+  });
+  const add = role => () => {
+    if (state.wan.filter(r => r.role === role).length >= WAN_MAX[role]) return;
+    const last = state.wan.filter(r => r.role === role).at(-1) || state.wan.at(-1);
+    const nr = newWanRow(role, last && last.vendor, last && last.model);
+    const idx = role === 'hub' ? state.wan.filter(r => r.role === 'hub').length : state.wan.length;
+    state.wan.splice(idx, 0, nr); touch(); renderWanRows();
+  };
+  $('#addHubButton').addEventListener('click', add('hub'));
+  $('#addSpokeButton').addEventListener('click', add('spoke'));
+  $('#wanPresetButton').addEventListener('click', () => { state.wan = defaultWanRows(); state.wanTouched = false; renderWanRows(); });
+  renderWanRows();
+}
+initWanUi();
