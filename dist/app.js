@@ -96,25 +96,31 @@ function setMode(mode) {
 
 function setModule(module) {
   state.module = module; state.forced = null;
-  state.outputPanel = 'delta';
+  state.outputPanel = module === 'audit' ? 'audit' : 'delta';
   state.outputDevice = 'a';
   $$('.module-picker button').forEach(b => b.classList.toggle('active', b.dataset.module === module));
   $('#securityContext').hidden = module !== 'security';
   $('#cablingContext').hidden = module !== 'cabling';
   $('#hardeningContext').hidden = module !== 'hardening';
   $('#campusContext').hidden = module !== 'campus';
+  $('#auditContext').hidden = module !== 'audit';
   $('.device-grid').hidden = module === 'campus';
   $$('.device-card').forEach(c => { c.hidden = module === 'hardening' && c.dataset.device !== 'a'; });
-  const actions = $('#deviceActions'); if (actions) actions.hidden = !['routing', 'cabling', 'security'].includes(module);
-  $$('.hardening-only').forEach(x => x.hidden = !['hardening','campus'].includes(module));
+  const actions = $('#deviceActions'); if (actions) actions.hidden = !['routing', 'cabling', 'security', 'audit'].includes(module);
+  const navVisible = { hardening: ['full', 'audit'], campus: ['full', 'audit'], audit: ['audit'], security: ['audit'] }[module] || [];
+  $$('.hardening-only').forEach(x => { x.hidden = !navVisible.includes(x.dataset.panel); });
+  const auditBtn = $('.hardening-only[data-panel="audit"]'); if (auditBtn) auditBtn.textContent = ['audit', 'security'].includes(module) ? 'Denetim raporu' : 'Hardening raporu';
+  const deltaBtn = $('.output-nav [data-panel="delta"]'); if (deltaBtn) deltaBtn.textContent = module === 'audit' ? 'Düzeltme komutları' : 'Delta config';
   const text = {
+    audit: "Yüklediğim config'leri güvenlik açısından denetle; hardening, Layer 2 koruma, 802.1X hazırlığı ve routing güvenliği için eksikleri ve düzeltme komutlarını ver.",
     routing: "İki cihazdaki VLAN 40'ı aynı Layer 2 ağ olarak uzat. Adı BILGI_ISLEM olsun. VNI ve gerekli loopback adreslerini sen belirle. Mevcut yapıyı bozmadan VXLAN EVPN kullan.",
     security: "Kullanıcı portlarında 802.1X olsun, başarısız olursa MAB denensin. ClearPass RADIUS kullan, telefon ve bilgisayar aynı portta çalışsın. 8 saatte reauth ve CoA etkin olsun.",
     cabling: "İki leaf cihazı yedekli olarak spine katmanına bağla. Boş uplink portlarını seç, 100G DAC kablo ve etiketleriyle saha iş emri hazırla. Ardından VXLAN EVPN config'ini üret.",
     hardening: "Bu switchi kurumsal erişim switchi olarak güvenli hale getir. SSH, AAA, yönetim ACL, NTP, syslog, SNMPv3, spanning-tree korumaları ve Layer 2 güvenlik ayarlarıyla tam config hazırla.",
     campus: "2 core ve 4 access switch için VLAN 10 USERS, VLAN 20 VOICE, VLAN 40 BILGI_ISLEM ve VLAN 99 MANAGEMENT olacak şekilde yedekli campus topolojisi ve hardening uygulanmış tam config hazırla."
   };
-  $('#intentInput').value = text[module];
+  $('#intentInput').value = window.I18N ? I18N.t(text[module]) : text[module];
+  if (module === 'audit') setMode('live');
 }
 
 function sampleConfig(vendor, side) {
@@ -131,15 +137,15 @@ function sampleConfig(vendor, side) {
 function detectIntent(text) {
   state.intentGuessed = false;
   const t = text.toLocaleLowerCase('tr-TR') + ' ' + text.toLowerCase(); // tr-TR: I -> ı olduğundan EIGRP vb. ASCII kısaltmalar için ikinci biçim şart
-  if (/802\.1x|mab|radius|clearpass|cisco ise|nps|web auth|reauth|coa|secure access/.test(t)) return 'security';
-  if (/kablo|portları seç|saha iş|fiziksel|dac|aoc|fiber/.test(t)) return 'cabling';
-  if (/hardening|güvenli hale|baseline|snmpv3|yönetim acl|tam config/.test(t)) return 'hardening';
-  if (/campus|core.*access|switch adedi|vlan.*topoloji/.test(t)) return 'campus';
-  if (/vxlan|vni|layer 2|aynı vlan|vlan.*uzat|evpn/.test(t)) return 'vxlan';
-  if (/static|statik|next.?hop|üzerinden eriş/.test(t)) return 'static';
+  if (/802\.1x|\bmab\b|radius|clearpass|cisco ise|\bnps\b|web auth|reauth|\bcoa\b|secure access|\bnac\b|dot1x|network access control/.test(t)) return 'security';
+  if (/kablo|portları seç|saha iş|fiziksel|\bdac\b|\baoc\b|fiber|\bcabl|work order|field order|physical|patch panel|transceiver/.test(t)) return 'cabling';
+  if (/hardening|güvenli hale|baseline|snmpv3|yönetim acl|tam config|\bharden|management acl|full config/.test(t)) return 'hardening';
+  if (/campus|core.*access|switch adedi|vlan.*topoloji|core and \d+ access|\d+ core/.test(t)) return 'campus';
+  if (/vxlan|\bvni\b|layer 2|aynı vlan|vlan.*uzat|evpn|same vlan|extend.*vlan|stretch.*vlan|l2 extension/.test(t)) return 'vxlan';
+  if (/static|statik|next.?hop|üzerinden eriş|\bvia\s+\d|default route/.test(t)) return 'static';
   if (/eigrp/.test(t)) return 'eigrp';
-  if (/bgp|farklı as|as 6\d{4}/.test(t)) return 'bgp';
-  if (/ospf|area|aynı kurum|dinamik routing/.test(t)) return 'ospf';
+  if (/bgp|farklı as|as 6\d{4}|different as|\bas number\b/.test(t)) return 'bgp';
+  if (/ospf|\barea\b|aynı kurum|dinamik routing|same (?:organi[sz]ation|company|domain)|dynamic routing/.test(t)) return 'ospf';
   state.intentGuessed = true;
   return 'ospf';
 }
@@ -287,7 +293,7 @@ function configFacts(info) {
 // ---- Niyet parametreleri ve cakisma kontrolu ----
 function intentParams(text) {
   const vid = Number((text.match(/vlan\s*(\d{1,4})/i) || [])[1]) || 40;
-  const nm = text.match(/ad[ıi]\s+([A-Za-z0-9_\-]+)/i);
+  const nm = text.match(/(?:\bad[ıi]|name it|named|called|name:?)\s+([A-Za-z0-9_\-]+)/i);
   return { vid: vid > 0 && vid < 4095 ? vid : 40, vname: nm ? nm[1] : 'BILGI_ISLEM' };
 }
 function nextFree(start, used) { let v = start; while (used.has(v)) v++; return v; }
@@ -360,7 +366,7 @@ function vendorConfigs(vendor, protocol, side) {
 
 function analyzePlan() {
   const intent = $('#intentInput').value.trim();
-  let ids = ['routing', 'cabling', 'security'].includes(state.module) ? deviceIds() : ['a', 'b'];
+  let ids = ['routing', 'cabling', 'security', 'audit'].includes(state.module) ? deviceIds() : ['a', 'b'];
   let devsMap = {}; ids.forEach(i => { devsMap[i] = deviceInfo(i); });
   if (state.module === 'campus') { const inv = campusInventory(); devsMap = { a: inv.core, b: inv.access }; ids = ['a', 'b']; }
   const all = ids.map(i => devsMap[i]);
@@ -371,6 +377,13 @@ function analyzePlan() {
   const P = state.params;
   const topo = window.NETCUBE_FABRIC.buildTopology(ids, devsMap, $('#redundancy')?.value === 'Tek bağlantı' ? 'single' : 'dual');
   state.ctx = { P, topo, ids, devs: devsMap };
+  const AU = window.NETCUBE_AUDIT;
+  const auditProfiles = auditProfilesFor(state.module);
+  const audits = {};
+  if (auditProfiles.length) {
+    const ap = auditParams();
+    ids.forEach(i => { if (state.module === 'hardening' && i !== 'a') return; if (devsMap[i].config) audits[i] = AU.run(devsMap[i], auditProfiles, ap); });
+  }
   const topoTag = topo.mode === 'leaf-spine' ? `${topo.spines.length} spine RR · ${topo.leaves.length} leaf` : (ids.length > 2 ? `${ids.length} cihaz mesh` : '2 cihaz');
   let protocol = state.module === 'routing' ? (state.forced || detectIntent(intent)) : state.module;
   const notes = [];
@@ -379,7 +392,7 @@ function analyzePlan() {
     const chain = [requested, ...FALLBACKS[requested]];
     protocol = chain.find(p => all.every(x => supports(x, p))) || 'static';
     if (protocol !== requested) {
-      const who = all.filter(x => !supports(x, requested)).map(deviceLabel).join(' ve ');
+      const who = all.filter(x => !supports(x, requested)).map(deviceLabel).join(' / ');
       notes.push(`${PROTO_NAME[requested]} uygun olurdu ama ${who} desteklemiyor; ${PROTO_NAME[protocol]} önerildi.`);
       if (requested === 'vxlan') notes.push('VXLAN olmadan VLAN Layer 2 olarak uzatılamaz; çözüm yalnızca Layer 3 erişim sağlar. Layer 2 uzatma gerekiyorsa VXLAN destekli modeller seçin.');
     }
@@ -402,6 +415,12 @@ function analyzePlan() {
     ,hardening: { title: state.mode==='new'?'Tam Switch Hardening Baseline':'Mevcut Config Hardening Planı', icon: 'SH', confidence: fa.live||state.mode==='new'?93:72, reason: state.mode==='new'?'Seçilen vendor ve cihaz profili için yönetim, erişim, logging, zaman, SNMPv3 ve Layer 2 korumalarını içeren tam başlangıç config’i hazırlanıyor.':'Yüklenen config denetleniyor; eksik kontroller için delta ve birleştirilmiş hedef config birlikte hazırlanıyor.', tags: ['SSH only', 'AAA + fallback', 'Management ACL', 'NTP · Syslog · SNMPv3'] }
     ,campus: { title: 'Hardening Uygulanmış Campus Tasarımı', icon: 'CB', confidence: 90, reason: `${inputValue('coreCount','2')} core ve ${inputValue('accessCount','4')} access switch için management IP, VLAN, STP, trunk, DHCP Snooping, DAI, IP Source Guard ve port planı birlikte üretildi.`, tags: [`${inputValue('coreCount','2')} core`, `${inputValue('accessCount','4')} access`, `${campusVlans().length} VLAN`, inputValue('campusRedundancy','dual')==='dual'?'Çift uplink':'Tek uplink'] }
   };
+  const loadedCount = ids.filter(i => facts[i].live).length;
+  definitions.audit = {
+    title: 'Config Denetimi ve Öneriler', icon: 'CD', confidence: Math.round(60 + 40 * loadedCount / ids.length),
+    reason: loadedCount ? `${loadedCount} cihazın yüklenen config'i seçili profillerle denetleniyor. Bulgular ciddiyete göre sıralanır; düzeltme komutları yer tutucularla hazırlanır, secret değerleri yazılmaz.` : "Denetim için en az bir cihazın running-config'ini yükleyin.",
+    tags: auditProfilesFor('audit').map(p => AU.PROFILES[p])
+  };
   const d = definitions[protocol];
   let alternatives = [
     { key: protocol, name: d.title, note: 'Önerilen · mevcut niyete en uygun', score: d.confidence, enabled: true },
@@ -409,7 +428,7 @@ function analyzePlan() {
       const missing = all.filter(x => !supports(x, k));
       const ok = missing.length === 0 && !(protocol === 'vxlan' && k === 'static');
       return { key: k, name: PROTO_NAME[k], enabled: ok,
-        note: missing.length ? `${missing.map(deviceLabel).join(' ve ')} desteklemiyor` : (k === 'static' ? 'Küçük topolojide uygulanabilir' : 'Uygulanabilir alternatif'),
+        note: missing.length ? `${missing.map(deviceLabel).join(' / ')} desteklemiyor` : (k === 'static' ? 'Küçük topolojide uygulanabilir' : 'Uygulanabilir alternatif'),
         score: ok ? (protocol === 'vxlan' && k !== 'static' ? 58 : base) : 0 };
     })
   ];
@@ -435,8 +454,25 @@ function analyzePlan() {
   ];
   if (fallbackCount && state.module === 'routing') d.reason = notes[0] + ' ' + d.reason;
   state.solution = protocol;
-  const outputs = {}; ids.forEach(i => { outputs[i] = vendorConfigs(devsMap[i].vendor, protocol, i); });
-  state.plan = { notes, intent, ids, devices: devsMap, facts, topo, a, b, fa, fb, definition: d, alternatives, outputs };
+  const noCfg = 'Bu cihaz için config yüklenmedi; denetim yapılamadı. "Dosya seç" ile running-config yükleyin.';
+  if (protocol === 'audit') alternatives = [
+    { key: 'audit', name: 'Seçili profillerle denetim', note: "Önerilen · yüklenen config'e göre", score: d.confidence, enabled: true },
+    { key: 'hardening', name: 'Sıfırdan hardening baseline', note: 'Config yoksa Switch Hardening modülü tam hedef config üretir', score: 60, enabled: false }
+  ];
+  const outputs = {};
+  ids.forEach(i => {
+    const dev = devsMap[i], au = audits[i], lab = { ...dev, label: vendorName(dev.vendor) };
+    if (protocol === 'audit') {
+      outputs[i] = au ? { delta: AU.fixScript(au), verify: AU.verifyText(au), rollback: AU.rollbackText(au), audit: AU.report(lab, au) } : { delta: noCfg, verify: noCfg, rollback: noCfg, audit: noCfg };
+    } else {
+      outputs[i] = vendorConfigs(dev.vendor, protocol, i);
+      if (outputs[i] && (protocol === 'hardening' || protocol === 'security')) {
+        if (au) outputs[i] = { ...outputs[i], audit: AU.report(lab, au) };
+        else if (protocol === 'security') outputs[i] = { ...outputs[i], audit: noCfg };
+      }
+    }
+  });
+  state.plan = { notes, intent, ids, devices: devsMap, facts, topo, a, b, fa, fb, definition: d, alternatives, outputs, audits };
   renderPlan();
 }
 
@@ -459,11 +495,18 @@ function renderPlan() {
       ? '<b>Config gerekli</b><span>Canlı switch için güvenli delta ve gerçek rollback üretmek üzere mevcut running-config yüklenmelidir.</span>'
       : '<b>Secret koruması</b><span>Parola, RADIUS anahtarı, SNMPv3 auth/priv anahtarları ve private key değerleri placeholder olarak bırakıldı.</span>';
   }
+  if (state.solution === 'audit') {
+    const miss = p.ids.filter(i => !p.audits[i]).length;
+    $('#warningBox').innerHTML = miss
+      ? `<b>${miss} cihazın config'i eksik</b><span>Config yüklenmeyen cihazlar denetlenemez. Her cihaz kartında "Dosya seç" ile running-config yükleyin.</span>`
+      : '<b>Denetim tamamlandı</b><span>Bulgular yüklenen config snapshot\'ına göre hesaplandı; çalışan sistemde (lisans, sürüm, runtime) doğrulayın.</span>';
+  }
   if (p.notes && p.notes.length) $('#warningBox').innerHTML += p.notes.map(n => `<span class="compat-note">⚠ ${n}</span>`).join('');
   $('#alternativeList').innerHTML = p.alternatives.map((a, i) => `<div class="alternative-row"><div><strong>${a.name}</strong><small>${a.note}</small></div><div class="score-track"><i style="width:${a.score}%"></i></div><span class="score">${a.enabled ? '%' + a.score : '—'}</span><button class="alt-action" data-alt="${a.key}" ${!a.enabled || i === 0 ? 'disabled' : ''}>${i === 0 ? 'Seçili' : 'İncele'}</button></div>`).join('');
   renderCablingPlan();
   renderCampusTopology();
-  const now = new Intl.DateTimeFormat('tr-TR', { hour: '2-digit', minute: '2-digit' }).format(new Date());
+  renderAuditCard();
+  const now = new Intl.DateTimeFormat(window.I18N ? I18N.locale() : 'tr-TR', { hour: '2-digit', minute: '2-digit' }).format(new Date());
   $('#snapshotLabel').textContent = `Config snapshot · ${now}`;
   updateDeviceTabs(); renderOutput();
   $('#results').hidden = false;
@@ -577,8 +620,8 @@ function renderOutput() {
   $$('.output-nav button').forEach(b => b.classList.toggle('active', b.dataset.panel === state.outputPanel));
   $('#deltaCaption').textContent = state.solution === 'hardening'
     ? (state.mode === 'new' ? 'Yeni switch için baştan sona uygulanabilir baseline' : 'Mevcut config’e göre delta, hedef config ve hardening raporu')
-    : state.solution === 'campus' ? 'Tüm core ve access switchler için hardening uygulanmış tam config' : 'Mevcut config üzerine uygulanacak minimum komutlar';
-  const orders = state.solution === 'vxlan' || state.solution === 'cabling'
+    : state.solution === 'campus' ? 'Tüm core ve access switchler için hardening uygulanmış tam config' : state.solution === 'audit' ? 'Bulgulara göre önerilen düzeltme komutları (secret değerleri yer tutucudur)' : 'Mevcut config üzerine uygulanacak minimum komutlar';
+  let orders = state.solution === 'vxlan' || state.solution === 'cabling'
     ? ['Underlay erişimini ve loopback rotalarını doğrula', 'Spine/route-reflector EVPN komşuluklarını hazırla', 'Leaf VTEP ve VLAN–VNI eşleşmesini uygula', 'EVPN route ve MAC öğrenimini doğrula']
     : state.solution === 'campus'
       ? ['Management IP, VLAN ve port planını onayla', 'Önce core switchleri ve STP root rollerini yapılandır', 'Access switchleri management VLAN üzerinden erişilebilir hale getir', 'Trunkları kablo/port planına göre bağla', 'DHCP Snooping, DAI ve IP Source Guard testlerini tamamla']
@@ -587,6 +630,7 @@ function renderOutput() {
     : state.solution === 'security'
       ? ['NAC/RADIUS politikasını hazırla', 'Tek pilot portta uygula', 'Başarılı, MAB ve RADIUS-down senaryolarını test et', 'Doğrulama sonrası port grubuna genişlet']
       : ['Ön kontrol komutlarını çalıştır', 'Hedef cihaz konfigürasyonunu uygula', 'Kaynak cihaz konfigürasyonunu uygula', 'Komşuluk ve route tablosunu doğrula'];
+  if (state.solution === 'audit') orders = ['Config yedeğini alın ve geri dönüş noktası oluşturun (Rollback sekmesi)', 'Kritik ve Yüksek bulguları önce pilot cihazda, konsol erişimi açıkken uygulayın', 'Yer tutucuları (<...>) kurumunuzun değerleriyle doldurun', 'Doğrulama komutlarını çalıştırın ve yeni config ile denetimi tekrarlayın', 'Puan ve bulguları onaylayıp diğer cihazlara yayın'];
   $('#applyOrder').innerHTML = orders.map(x => `<li>${x}</li>`).join('');
 }
 
@@ -673,7 +717,7 @@ $$('.device-card').forEach(card => {
 $('#addDeviceButton').addEventListener('click', addDevice);
 refreshDeviceActions();
 $('#intentInput').addEventListener('input', () => { state.forced = null; });
-$('#exampleButton').addEventListener('click', () => { state.forced = null; exampleIndex = (exampleIndex + 1) % examples.length; $('#intentInput').value = examples[exampleIndex]; });
+$('#exampleButton').addEventListener('click', () => { state.forced = null; exampleIndex = (exampleIndex + 1) % examples.length; $('#intentInput').value = window.I18N ? I18N.t(examples[exampleIndex]) : examples[exampleIndex]; });
 $('#analyzeButton').addEventListener('click', () => {
   const btn = $('#analyzeButton'); btn.classList.add('loading'); btn.querySelector('span').textContent = 'Analiz ediliyor';
   setTimeout(() => { analyzePlan(); btn.classList.remove('loading'); btn.querySelector('span').textContent = 'Planı hazırla'; }, 650);
@@ -687,3 +731,49 @@ $('#themeButton').addEventListener('click', () => document.body.classList.toggle
 
 setMode('live');
 setModule('routing');
+
+
+// ---------- Config denetimi ----------
+function escHtml(t) { return String(t == null ? '' : t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]); }
+
+function auditProfilesFor(module) {
+  if (module === 'hardening') return ['hardening', 'l2'];
+  if (module === 'security') return ['dot1x'];
+  if (module === 'audit') {
+    const map = { auditHardening: 'hardening', auditL2: 'l2', auditDot1x: 'dot1x', auditRouting: 'routing' };
+    return Object.keys(map).filter(id => { const el = document.getElementById(id); return el && el.checked; }).map(id => map[id]);
+  }
+  return [];
+}
+
+function auditParams() {
+  const list = t => t.split(',').map(x => x.trim()).filter(Boolean);
+  const a = state.module === 'audit';
+  const adminNet = inputValue(a ? 'auditAdminNet' : 'adminNetwork', '10.10.10.0/24');
+  const parts = adminAclParts(adminNet);
+  return {
+    ntp: list(inputValue(a ? 'auditNtp' : 'ntpServers', '')),
+    syslog: inputValue(a ? 'auditSyslog' : 'syslogServer', ''),
+    radius: list(inputValue(a ? 'auditRadius' : 'radiusServers', '')),
+    adminNet, adminIp: parts.ip, wildcard: parts.wildcard
+  };
+}
+
+function renderAuditCard() {
+  const card = $('#auditCard'); const p = state.plan; const AU = window.NETCUBE_AUDIT;
+  const done = Object.keys(p.audits || {});
+  const show = done.length > 0 || state.solution === 'audit';
+  card.hidden = !show; if (!show) return;
+  const avg = done.length ? Math.round(done.reduce((s, i) => s + p.audits[i].score, 0) / done.length) : 0;
+  $('#auditSummary').textContent = done.length ? `${done.length} CİHAZ · ORTALAMA ${avg}/100` : 'CONFIG YÜKLENMEDİ';
+  $('#auditBody').innerHTML = p.ids.filter(i => !(state.solution === 'hardening' && i !== 'a')).map(id => {
+    const d = p.devices[id], au = p.audits[id];
+    const head = `${id.toUpperCase()} · ${escHtml(vendorName(d.vendor))} ${escHtml(d.model)}`;
+    if (!au) return `<div class="audit-dev"><div class="audit-dev-head"><strong>${head}</strong><span class="audit-nocfg">Config yüklenmedi</span></div></div>`;
+    const fails = au.findings.filter(f => f.status === 'fail');
+    const cls = au.score >= 80 ? 'good' : au.score >= 50 ? 'warn' : 'bad';
+    const chips = ['critical', 'high', 'medium', 'low'].filter(k => au.counts[k]).map(k => `<span class="sev sev-${k}">${au.counts[k]} ${AU.SEV[k].label}</span>`).join('') || '<span class="sev sev-ok">Bulgu yok</span>';
+    const top = fails.slice(0, 8).map(f => `<li><span class="sev sev-${f.sev}">${AU.SEV[f.sev].label}</span><div><b>${f.id} · ${escHtml(f.title)}</b>${f.detail ? `<small>${escHtml(f.detail)}</small>` : ''}</div></li>`).join('');
+    return `<div class="audit-dev"><div class="audit-dev-head"><strong>${head}</strong><div class="audit-score ${cls}"><b>${au.score}</b><small>/100</small></div></div><div class="audit-bar ${cls}"><i style="width:${au.score}%"></i></div><div class="audit-counts">${chips}<span class="audit-pass">${au.counts.pass} başarılı · ${au.counts.na} uygulanamaz</span></div>${top ? `<ul class="audit-list">${top}</ul>` : ''}${fails.length > 8 ? `<p class="audit-more">+${fails.length - 8} bulgu daha: "Denetim raporu" sekmesinde</p>` : ''}</div>`;
+  }).join('');
+}

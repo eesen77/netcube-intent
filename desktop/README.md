@@ -1,6 +1,6 @@
 # NetCube Intent Desktop
 
-Windows x64 portable prototipi. Kurulum gerektirmez; `npm run build:win` sonrası `release/NetCube-Intent-0.8.0-Portable.exe` dosyasını çalıştırın.
+Windows x64 portable prototipi. Kurulum gerektirmez; `npm run build:win` sonrası `release/NetCube-Intent-0.9.0-Portable.exe` dosyasını çalıştırın.
 
 Kaynak: `../dist` tek kaynaktır. `app/` klasörü `npm run sync` (veya `build:win`) ile oradan kopyalanır; `app/` içinde elle değişiklik yapmayın.
 

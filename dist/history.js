@@ -4,7 +4,7 @@
 (function () {
   const KEY = 'netcube.jobs.v1';
   const MAX_JOBS = 50;
-  const MODULE_LABEL = { routing: 'Routing & Overlay', security: 'Secure Access', cabling: 'Fiziksel Plan', hardening: 'Switch Hardening', campus: 'Campus Builder' };
+  const MODULE_LABEL = { routing: 'Routing & Overlay', security: 'Secure Access', cabling: 'Fiziksel Plan', hardening: 'Switch Hardening', campus: 'Campus Builder', audit: 'Config Denetimi' };
   const Jobs = { restoring: false, list: [] };
 
   const esc = t => String(t == null ? '' : t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -26,7 +26,7 @@
   }
 
   function capture() {
-    const fields = {}; fieldIds().forEach(el => { fields[el.id] = el.value; });
+    const fields = {}; fieldIds().forEach(el => { fields[el.id] = el.type === 'checkbox' ? (el.checked ? '1' : '0') : el.value; });
     const devices = $$('.device-card').map(c => ({
       id: c.dataset.device, vendor: $('.vendor', c).value, model: $('.model', c).value, custom: $('.model-custom', c).value,
       os: $('.os', c).value, version: $('.version', c).value, role: $('.role', c).value,
@@ -89,7 +89,7 @@
       setModule(snap.module); setMode(snap.mode);
       const f = snap.fields;
       Object.keys(f).filter(k => /Vendor$/.test(k)).forEach(k => { const el = document.getElementById(k); if (el) { el.value = f[k]; el.dispatchEvent(new Event('change')); } });
-      Object.keys(f).filter(k => !/Vendor$/.test(k)).forEach(k => { const el = document.getElementById(k); if (el) el.value = f[k]; });
+      Object.keys(f).filter(k => !/Vendor$/.test(k)).forEach(k => { const el = document.getElementById(k); if (!el) return; if (el.type === 'checkbox') el.checked = f[k] === '1'; else el.value = f[k]; });
       state.forced = snap.forced || null;
       analyzePlan();
     } finally { Jobs.restoring = false; }
@@ -122,7 +122,7 @@
   function render(message) {
     if (!panel) return;
     const items = Jobs.list.map(j => {
-      const when = new Date(j.ts).toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short' });
+      const when = new Date(j.ts).toLocaleString(window.I18N ? I18N.locale() : 'tr-TR', { dateStyle: 'short', timeStyle: 'short' });
       return `<li class="job-item"><div class="job-main"><strong>${esc(j.title)}</strong><small>${esc(MODULE_LABEL[j.module] || j.module)} · ${esc(when)}</small><span>${esc(j.subtitle)}</span></div><div class="job-actions"><button type="button" data-job-open="${esc(j.id)}">Aç</button><button type="button" data-job-del="${esc(j.id)}" aria-label="Sil">Sil</button></div></li>`;
     }).join('');
     $('.jobs-body', panel).innerHTML = (message ? `<p class="jobs-msg">${esc(message)}</p>` : '') + (items ? `<ul class="job-list">${items}</ul>` : '<p class="jobs-empty">Henüz kayıtlı iş yok. “Planı hazırla” dediğin her plan buraya girdileriyle birlikte kaydedilir.</p>');
@@ -148,7 +148,7 @@
       if (o) { const rec = Jobs.list.find(j => j.id === o.dataset.jobOpen); if (rec) restore(rec); }
       if (d) { Jobs.list = Jobs.list.filter(j => j.id !== d.dataset.jobDel); persist(); updateBadge(); render(); }
       if (t && t.dataset.jobs === 'export') exportJobs();
-      if (t && t.dataset.jobs === 'clear' && Jobs.list.length && window.confirm('Tüm kayıtlı işler silinsin mi? Bu geri alınamaz.')) { Jobs.list = []; persist(); updateBadge(); render(); }
+      if (t && t.dataset.jobs === 'clear' && Jobs.list.length && window.confirm(window.I18N ? I18N.t('Tüm kayıtlı işler silinsin mi? Bu geri alınamaz.') : 'Tüm kayıtlı işler silinsin mi? Bu geri alınamaz.')) { Jobs.list = []; persist(); updateBadge(); render(); }
     });
     $('.jobs-import input', panel).addEventListener('change', e => { const f = e.target.files[0]; if (f) importJobs(f); e.target.value = ''; });
   }
