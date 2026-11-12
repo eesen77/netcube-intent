@@ -272,3 +272,7 @@ body.dark .sev-ok { background: #1f3a29; color: #9fe0b5; }
 .wan-row { grid-template-columns: 64px 1fr 1.3fr 1fr 1fr 1fr 1fr 1fr auto; }
 .wan-row .cr-custom-wrap { grid-column: 3 / 5; }
 @media (max-width: 900px) { .wan-row { grid-template-columns: 1fr 1fr; } }
+
+/* Campus: sanallaştırma çiftleri ve LAG */
+.topology-diagram .pair-box { fill: none; stroke: var(--accent-dark); stroke-width: 1.5; stroke-dasharray: 6 5; opacity: .8; }
+.topology-diagram .link.lag { stroke-width: 3.5; opacity: .7; }

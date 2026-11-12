@@ -145,7 +145,7 @@ function sampleConfig(vendor, side) {
 
 function detectIntent(text) {
   state.intentGuessed = false;
-  const t = text.toLocaleLowerCase('tr-TR') + ' ' + text.toLowerCase(); // tr-TR: I -> ı olduğundan EIGRP vb. ASCII kısaltmalar için ikinci biçim şart
+  const t = text.toLocaleLowerCase('tr-TR') + '\n' + text.toLowerCase(); // tr-TR: I -> ı olduğundan EIGRP vb. ASCII kısaltmalar için ikinci biçim şart
   if (/802\.1x|\bmab\b|radius|clearpass|cisco ise|\bnps\b|web auth|reauth|\bcoa\b|secure access|\bnac\b|dot1x|network access control/.test(t)) return 'security';
   if (/kablo|portları seç|saha iş|fiziksel|\bdac\b|\baoc\b|fiber|\bcabl|work order|field order|physical|patch panel|transceiver/.test(t)) return 'cabling';
   if (/hardening|güvenli hale|baseline|snmpv3|yönetim acl|tam config|\bharden|management acl|full config/.test(t)) return 'hardening';
@@ -221,7 +221,7 @@ function managementAddress(host) {
 }
 function isManagementVlan(v) { return /MANAGEMENT|MGMT/i.test(v.name); }
 
-// ---------- Campus Builder: cihaz envanteri + niyet tabanlı üretim ----------
+// ---------- Campus Builder: cihaz envanteri + niyet tabanlı üretim (FHRP, core sanallaştırma, access stack) ----------
 function campusIsIp(s) { return /^\d{1,3}(\.\d{1,3}){3}$/.test(s) && s.split('.').every(n => Number(n) <= 255); }
 
 function netInfo(cidr) {
@@ -232,17 +232,57 @@ function netInfo(cidr) {
   return { net: q((n & bits) >>> 0), mask: q(bits), wildcard: q((~bits) >>> 0), prefix: pre };
 }
 
-function campusPortName(vendor, kind, n) {
-  if (vendor === 'cisco') return kind === 'up' ? `TenGigabitEthernet1/1/${n}` : `TenGigabitEthernet1/0/${n}`;
-  if (vendor === 'aruba') return kind === 'up' ? `1/1/${48 + n}` : `1/1/${n}`;
-  return `XGigabitEthernet0/0/${n}`;
+// ----- yetenekler -----
+const VIRT_NAME = { svl: 'StackWise Virtual (VSS)', vpc: 'vPC', vsx: 'VSX', css: 'CSS', istack: 'iStack', mlag: 'M-LAG' };
+function campusIsNxos(d) { return d.vendor === 'cisco' && /^NdK|^N9K|nexus/i.test(d.model); }
+function campusStackable(v, model) {
+  if (v === 'cisco') return /^C9[23]/i.test(model) && !/^N/i.test(model);
+  if (v === 'aruba') return /CX\s*6[23]/i.test(model);
+  if (v === 'huawei') return /S5735|S5731|S5732|S6730/i.test(model);
+  return false;
+}
+function campusVirtKind(v, model) {
+  if (v === 'cisco') return /^NdK|^N9K|nexus/i.test(model) ? 'vpc' : /^C9[456]/i.test(model) ? 'svl' : null;
+  if (v === 'aruba') return /CX\s*(8|9|64)/i.test(model) ? 'vsx' : null;
+  if (v === 'huawei') return /S7706/i.test(model) ? 'css' : /S6730/i.test(model) ? 'istack' : /CE\d/i.test(model) ? 'mlag' : null;
+  return null;
+}
+// FHRP: Cisco HSRP/VRRP/GLBP; Aruba ve Huawei yalnız VRRP
+function campusFhrpFor(vendor, want) {
+  if (want === 'none') return { kind: null };
+  const def = vendor === 'cisco' ? 'hsrp' : 'vrrp';
+  if (!want || want === 'auto') return { kind: def };
+  if (vendor !== 'cisco' && want !== 'vrrp') return { kind: 'vrrp', note: `${vendorName(vendor)} ${want.toUpperCase()} desteklemiyor; VRRP kullanıldı.` };
+  return { kind: want };
 }
 
-// Niyet metninden campus özelliklerini çıkarır
+function campusPortName(vendor, kind, n, chassis, nxos) {
+  const ch = chassis || 1;
+  if (vendor === 'cisco' && nxos) return `Ethernet1/${typeof n === 'object' ? (n.slot || 1) : n}`;
+  if (vendor === 'cisco') return kind === 'up' ? `TenGigabitEthernet${n.mem || 1}/1/${n.slot || n}` : `TenGigabitEthernet${ch}/0/${n}`;
+  if (vendor === 'aruba') return kind === 'up' ? `${n.mem || 1}/1/${48 + (n.slot || n)}` : `1/1/${n}`;
+  return kind === 'up' ? `XGigabitEthernet${(n.mem || 1) - 1}/0/${n.slot || n}` : `XGigabitEthernet${chassis ? ch : 0}/0/${n}`;
+}
+function campusInterPairPorts(d, chassis) {
+  const ch = chassis || 1;
+  if (campusIsNxos(d)) return ['Ethernet1/44', 'Ethernet1/45'];
+  if (d.vendor === 'cisco') return [`TenGigabitEthernet${ch}/0/44`, `TenGigabitEthernet${ch}/0/45`];
+  if (d.vendor === 'aruba') return ['1/1/44', '1/1/45'];
+  return [`XGigabitEthernet${chassis ? ch : 0}/0/44`, `XGigabitEthernet${chassis ? ch : 0}/0/45`];
+}
+function campusInterPorts(vendor, chassis, nxos) {
+  const ch = chassis || 1;
+  if (vendor === 'cisco' && nxos) return ['Ethernet1/47', 'Ethernet1/48'];
+  if (vendor === 'cisco') return [`TenGigabitEthernet${ch}/0/47`, `TenGigabitEthernet${ch}/0/48`];
+  if (vendor === 'aruba') return ['1/1/47', '1/1/48'];
+  return [`XGigabitEthernet${chassis ? ch : 0}/0/47`, `XGigabitEthernet${chassis ? ch : 0}/0/48`];
+}
+
+// ----- niyet -----
 function campusFeatures(text) {
-  const t = (text || '').toLocaleLowerCase('tr-TR') + ' ' + (text || '').toLowerCase();
+  const t = (text || '').toLocaleLowerCase('tr-TR') + '\n' + (text || '').toLowerCase();
   const no = re => re.test(t);
-  const f = { hardening: true, l2sec: true, dot1x: false, ospf: false, defaultRoute: null, dhcp: false, redundancy: null, vlans: null, cores: null, accesses: null, labels: [] };
+  const f = { hardening: true, l2sec: true, dot1x: false, ospf: false, defaultRoute: null, dhcp: false, redundancy: null, vlans: null, cores: null, accesses: null, fhrp: null, virt: false, virtWord: null, stack: 0, labels: [] };
   if (no(/hardening (yok|olmasın|istemiyorum)|without hardening|no hardening|hardening\W*(?:is )?not needed/)) f.hardening = false;
   if (no(/(snooping|dai|l2 güvenlik|layer 2 güvenlik|layer 2 security)\s*(yok|olmasın|istemiyorum)|without (dhcp )?snooping|no (dhcp )?snooping/)) f.l2sec = false;
   f.dot1x = no(/802\.1x|\bmab\b|radius|clearpass|cisco ise|\bnps\b|\bnac\b|dot1x|kimlik doğrulama|network access control/);
@@ -257,7 +297,18 @@ function campusFeatures(text) {
   if (!f.defaultRoute && no(/default route|varsayılan rota|internet çıkış|internet access|wan çıkış/)) f.defaultRoute = '<NEXT_HOP_IP>';
   if (no(/tek uplink|single uplink|single core|tek core uplink/)) f.redundancy = 'single';
   else if (no(/çift uplink|dual uplink|dual-homed|redundant|yedekli|dual core/)) f.redundancy = 'dual';
-  // VLAN listesi: "VLAN 10 USERS" (ad büyük harfle yazıldığında alınır)
+  // FHRP
+  if (no(/(fhrp|hsrp|vrrp|glbp|gateway redundancy|gateway yedekli\w*)\s*(yok|olmasın|istemiyorum|kullanma)|(no|without)\s+(fhrp|hsrp|vrrp|glbp)/)) f.fhrp = 'none';
+  else if (no(/\bglbp\b/)) f.fhrp = 'glbp'; else if (no(/\bvrrp\b/)) f.fhrp = 'vrrp'; else if (no(/\bhsrp\b/)) f.fhrp = 'hsrp';
+  // core sanallaştırma: VSS / StackWise Virtual / VSX / vPC / MLAG / CSS
+  if (no(/\bvss\b|stackwise.?virtual|\bsvl\b|\bvsx\b|\bvpc\b|v-pc|virtual port.?channel|m-?lag|multi.?chassis|\bcss\b|cluster switch|virtual chassis|core\w*.{0,30}\bstack|\bstack\w*.{0,30}core/)) f.virt = true;
+  if (no(/\bvpc\b|v-pc|virtual port.?channel/)) f.virtWord = 'vpc';
+  // access stack
+  if (no(/\bstack|stackwise(?!.?virtual)|\bvsf\b|istack/) && !no(/core\w*.{0,30}\bstack|\bstack\w*.{0,30}core/) && !no(/stackwise.?virtual/) || no(/\bvsf\b|istack/)) {
+    const sm = t.match(/(\d)\s*(?:'|’)?(?:li|lı|lu|lü)?\s*(?:switch(?:ler)?\s*)?(?:stack|üyeli)|stack of (\d)|(\d)\s*(?:member|üye)/);
+    f.stack = sm ? Math.max(2, Math.min(4, Number(sm[1] || sm[2] || sm[3]))) : 2;
+  }
+  const vm = (text || '').match(/vlan\s*(\d{1,4})\s*[:\-]?\s*([A-Za-z][A-Za-z0-9_]{1,24})?/gi);
   const seen = new Map(); let m; const re = /vlan\s*(\d{1,4})\s*[:\-]?\s*([A-Za-z][A-Za-z0-9_]{1,24})?/gi;
   while ((m = re.exec(text || '')) !== null) { const id = Number(m[1]); if (id > 0 && id < 4095 && !seen.has(id)) seen.set(id, m[2] && m[2] === m[2].toUpperCase() ? m[2] : `VLAN_${id}`); }
   if (seen.size >= 2) f.vlans = [...seen.entries()].map(([id, name]) => ({ id, name }));
@@ -266,10 +317,10 @@ function campusFeatures(text) {
   const L = f.labels;
   if (f.hardening) L.push('hardening'); if (f.l2sec) L.push('Layer 2 koruma'); if (f.dot1x) L.push('802.1X / MAB'); if (f.ospf) L.push('OSPF');
   if (f.defaultRoute) L.push('varsayılan rota'); if (f.dhcp) L.push('DHCP sunucusu'); if (f.redundancy) L.push(f.redundancy === 'single' ? 'tek uplink' : 'çift uplink');
+  void vm;
   return f;
 }
 
-// Niyetin envanteri ve VLAN alanlarını sürmesi (arayüzde de görünür)
 function campusApplyIntent() {
   const f = campusFeatures(($('#intentInput') || {}).value || '');
   state.campusFeatures = f;
@@ -279,6 +330,10 @@ function campusApplyIntent() {
     const el = $('#campusVlans'); if (el && el.value.trim() !== txt) { el.value = txt; msgs.push('VLAN listesi niyetten alındı'); }
   }
   if (f.redundancy) { const el = $('#campusRedundancy'); if (el) el.value = f.redundancy === 'single' ? 'single' : 'dual'; }
+  const put = (id, val, msg) => { const el = $('#' + id); if (el && el.value !== val) { el.value = val; msgs.push(msg); } };
+  if (f.fhrp) put('campusFhrp', f.fhrp, `gateway yedekliliği: ${f.fhrp.toUpperCase()}`);
+  if (f.virt) put('campusVirt', 'on', 'core sanallaştırma açıldı');
+  if (f.stack) put('campusStack', String(f.stack), `access stack: ${f.stack} üyeli`);
   if ((f.cores || f.accesses) && !state.campusTouched) {
     const nc = state.campus.filter(r => r.role === 'core').length, na = state.campus.filter(r => r.role !== 'core').length;
     const wc = f.cores || nc, wa = f.accesses || na;
@@ -294,6 +349,15 @@ function campusApplyIntent() {
   return f;
 }
 
+// ----- envanter -----
+function campusPairInfo(inv, c) {
+  if (!inv.virt) return null;
+  for (let i = 0; i < inv.virt.pairs.length; i++) { const p = inv.virt.pairs[i]; if (p.a === c) return { pair: p, i, chassis: 1, peer: p.b }; if (p.b === c) return { pair: p, i, chassis: 2, peer: p.a }; }
+  return null;
+}
+// Çok katmanlı (4 core): ilk çift gateway/core, ikinci çift aggregation (L2); tek çiftte çift gateway'dir
+function campusIsGw(inv, c) { const pi = campusPairInfo(inv, c); return !pi || !inv.virt.layered || pi.i === 0; }
+
 function campusInventory() {
   const rows = state.campus && state.campus.length ? state.campus : defaultCampusRows();
   const f = state.campusFeatures || campusFeatures('');
@@ -301,34 +365,157 @@ function campusInventory() {
   const mk = (r, idx) => {
     const role = r.role;
     const model = (r.model === CUSTOM_MODEL ? (r.custom || '').trim() : r.model) || (catalogFor(r.vendor)[0] || {}).model || (role === 'core' ? 'Core' : 'Access');
-    const hostname = (r.hostname || '').trim().replace(/\s+/g, '-') || `${role === 'core' ? 'CORE' : 'ACCESS'}-${String(idx + 1).padStart(2, '0')}`;
-    let mgmt = managementAddress(role === 'core' ? idx + 2 : 20 + idx);
+    const hostTyped = (r.hostname || '').trim().replace(/\s+/g, '-');
+    const hostname = hostTyped || `${role === 'core' ? 'CORE' : 'ACCESS'}-${String(idx + 1).padStart(2, '0')}`;
+    let mgmt = managementAddress(role === 'core' ? idx + 2 : 20 + idx); let mgmtTyped = false;
     const typed = (r.mgmt || '').trim();
-    if (typed) { const ip = typed.split('/')[0]; if (campusIsIp(ip)) mgmt = `${ip}/${managementAddress(1).split('/')[1] || '24'}`; else notes.push(`${hostname}: yönetim IP '${typed}' geçersiz; otomatik adres kullanıldı.`); }
-    if (seen.has(hostname)) notes.push(`Hostname ${hostname} birden fazla cihazda kullanılıyor.`);
-    seen.add(hostname);
-    return { id: r.id, role, idx, vendor: r.vendor, model, hostname, mgmt, ports: Number(r.ports) || 48, os: OS_BY_VENDOR[r.vendor], version: 'Profil tabanlı', config: '' };
+    if (typed) { const ip = typed.split('/')[0]; if (campusIsIp(ip)) { mgmt = `${ip}/${managementAddress(1).split('/')[1] || '24'}`; mgmtTyped = true; } else notes.push(`${hostname}: yönetim IP '${typed}' geçersiz; otomatik adres kullanıldı.`); }
+    return { id: r.id, role, idx, vendor: r.vendor, model, hostname, hostTyped: Boolean(hostTyped), mgmt, mgmtTyped, ports: Number(r.ports) || 48, os: campusIsNxos({ vendor: r.vendor, model }) ? 'NX-OS' : OS_BY_VENDOR[r.vendor], version: 'Profil tabanlı', config: '' };
   };
   const cores = rows.filter(r => r.role === 'core').map((r, i) => mk(r, i));
-  const accesses = rows.filter(r => r.role !== 'core').map((r, i) => mk(r, i));
+  const accPhys = rows.filter(r => r.role !== 'core').map((r, i) => mk(r, i));
+  const fhrpSel = inputValue('campusFhrp', 'auto'); const virtSel = inputValue('campusVirt', 'none') === 'on'; const stackN = Math.max(0, Math.min(4, Number(inputValue('campusStack', '0')) || 0));
+
+  // core sanallaştırma: 2 core = tek çift; 4 core = iki çift (çok katmanlı, çift taraflı çok-şasili LAG)
+  let virt = null;
+  if (virtSel) {
+    if (cores.length !== 2 && cores.length !== 4) notes.push('Core sanallaştırma için 2 core (tek çift) veya 4 core (iki çift, çok katmanlı) gerekir; FHRP ile devam edildi.');
+    else {
+      const pairs = []; const kinds = new Set(); let ok = true;
+      for (let i = 0; i < cores.length && ok; i += 2) {
+        const a = cores[i], b = cores[i + 1];
+        if (a.vendor !== b.vendor) { ok = false; notes.push(`${a.hostname} / ${b.hostname} farklı üreticiden; sanallaştırma kurulamadı, FHRP ile devam edildi.`); break; }
+        const ka = campusVirtKind(a.vendor, a.model), kb = campusVirtKind(b.vendor, b.model);
+        if (!ka || ka !== kb) { ok = false; notes.push(`${a.model} / ${b.model} sanallaştırmayı desteklemiyor veya modeller aynı türde değil; FHRP ile devam edildi.`); break; }
+        kinds.add(ka); pairs.push({ a, b });
+      }
+      if (ok && kinds.size === 1) virt = { kind: [...kinds][0], pairs, layered: pairs.length === 2 };
+      else if (ok) notes.push('İki çift farklı sanallaştırma türünde; kurulamadı, FHRP ile devam edildi.');
+    }
+  }
+  if (f.virtWord === 'vpc' && cores[0] && cores[0].vendor === 'cisco' && !(virt && virt.kind === 'vpc')) notes.push('vPC yalnızca Nexus (NX-OS) cihazlarda bulunur; Catalyst core\'larda StackWise Virtual (VSS) kullanıldı. vPC için core modelini Nexus seçin.');
+  else if (f.virtWord === 'vpc' && virt && virt.kind !== 'vpc') notes.push(`vPC yerine bu üreticinin karşılığı (${VIRT_NAME[virt.kind]}) kullanıldı.`);
+  if (virt && virt.layered) notes.push('Dört core: ilk çift gateway/core, ikinci çift aggregation (yalnız L2); iki çift arasında çift taraflı (double-sided) çok-şasili LAG kuruldu, access\'ler aggregation çiftine bağlandı.');
+  if (virt && virt.kind === 'vpc' && cores.some(c => !campusIsNxos(c))) notes.push('vPC çiftlerinde Nexus dışı model var; kurulamadı.');
+
+  // FHRP: tek çift SVL/VSX/M-LAG/CSS'de gerekmez; vPC (Nexus) ve çiftsiz tasarımda kullanılır
+  const useFhrp = !virt || virt.kind === 'vpc' || virt.kind === 'mlag';
+  const fhrp = useFhrp ? fhrpSel : null;
+  if (useFhrp && cores.length) { const sv = new Set(); cores.forEach(c => { if (sv.has(c.vendor)) return; sv.add(c.vendor); const e = campusFhrpFor(c.vendor, fhrpSel); if (e.note) notes.push(e.note); }); }
+  if (useFhrp && fhrpSel === 'glbp' && cores.some(c => campusIsNxos(c))) notes.push('GLBP, NX-OS vPC ile desteklenmez; HSRP kullanıldı.');
+  if (useFhrp && fhrpSel === 'none') notes.push('FHRP istenmedi: sanal gateway adresi yok; istemcilere core\'lardan birinin gerçek adresi verilir.');
+
+  // access stack
+  const logical = []; let ai = 0; const grouped = stackN >= 2;
+  while (ai < accPhys.length) {
+    const first = accPhys[ai]; const members = [first]; let j = ai + 1;
+    if (grouped) {
+      if (!campusStackable(first.vendor, first.model)) notes.push(`${first.model} stack desteklemiyor; ayrı switch olarak bırakıldı.`);
+      else while (j < accPhys.length && members.length < stackN && accPhys[j].vendor === first.vendor && accPhys[j].model === first.model) { members.push(accPhys[j]); j++; }
+    }
+    const li = logical.length; const L = { ...first, members, stack: members.length, idx: li };
+    if (!first.hostTyped) L.hostname = `ACCESS-${String(li + 1).padStart(2, '0')}`;
+    if (!first.mgmtTyped) L.mgmt = managementAddress(20 + li);
+    logical.push(L); ai = members.length > 1 ? j : ai + 1;
+  }
+  logical.forEach(a => { if (seen.has(a.hostname)) notes.push(`Hostname ${a.hostname} birden fazla cihazda kullanılıyor.`); seen.add(a.hostname); });
+  cores.forEach(c => { if (seen.has(c.hostname)) notes.push(`Hostname ${c.hostname} birden fazla cihazda kullanılıyor.`); seen.add(c.hostname); });
+  if (grouped) notes.push(`Access stack: ${logical.filter(a => a.stack > 1).length} stack grubu (en fazla ${stackN} üye), ${logical.filter(a => a.stack === 1).length} tekil switch.`);
+
   const wantDual = inputValue('campusRedundancy', 'dual') === 'dual';
   const dual = wantDual && cores.length > 1;
   if (wantDual && cores.length === 1) notes.push('Tek core olduğu için çift uplink kurulamadı; her access tek core uplink kullanıyor.');
+
+  // bağlantı planı
   const links = []; const used = {}; cores.forEach(c => { used[c.id] = 0; });
-  accesses.forEach((a, k) => {
-    const targets = dual ? [cores[k % cores.length], cores[(k + 1) % cores.length]] : [cores[k % cores.length]];
-    targets.forEach((c, u) => { used[c.id]++; links.push({ access: a, core: c, u, aPort: campusPortName(a.vendor, 'up', u + 1), cPort: campusPortName(c.vendor, 'down', used[c.id]) }); });
+  const inv0 = { virt };
+  const chassisOf = c => { const pi = campusPairInfo(inv0, c); return pi ? pi.chassis : 0; };
+  const aggPair = virt ? virt.pairs[virt.layered ? 1 : 0] : null;
+  logical.forEach((a, k) => {
+    const m = a.members.length;
+    if (virt) {
+      const targets = dual ? [aggPair.a, aggPair.b] : [aggPair.a];
+      for (let mi = 1; mi <= m; mi++) targets.forEach((c, ti) => { used[c.id]++; links.push({ access: a, core: c, u: ti, mem: mi, lag: k + 1, aPort: campusPortName(a.vendor, 'up', { mem: mi, slot: ti + 1 }), cPort: campusPortName(c.vendor, 'down', used[c.id], chassisOf(c) || 1, campusIsNxos(c)) }); });
+    } else {
+      const targets = dual ? [cores[k % cores.length], cores[(k + 1) % cores.length]] : [cores[k % cores.length]];
+      targets.forEach((c, u) => { const mi = Math.min(u + 1, m); used[c.id]++; links.push({ access: a, core: c, u, mem: mi, lag: null, aPort: campusPortName(a.vendor, 'up', { mem: mi, slot: m === 1 ? u + 1 : 1 }), cPort: campusPortName(c.vendor, 'down', used[c.id], 1, campusIsNxos(c)) }); });
+    }
   });
+  // iki çift arası çift taraflı LAG (4 fiziksel bağlantı)
+  const interLinks = [];
+  if (virt && virt.layered) {
+    const [P, Q] = virt.pairs; const pp = c => campusInterPairPorts(c, chassisOf(c));
+    [[P.a, 0, Q.a, 0], [P.a, 1, Q.b, 0], [P.b, 0, Q.a, 1], [P.b, 1, Q.b, 1]].forEach(([x, xi, y, yi]) => interLinks.push({ x, y, xPort: pp(x)[xi], yPort: pp(y)[yi] }));
+  }
+  const interlink = !virt && cores.length >= 2 && fhrpSel !== 'none' ? { a: cores[0], b: cores[1] } : null;
+  if (!virt && cores.length > 2) notes.push('2\'den fazla core için yalnızca ilk ikisi arasında inter-core bağlantı tanımlandı.');
+
   (state.campusIntentMsgs || []).forEach(m => notes.push(`Niyetten: ${m}.`));
-  notes.push(f.labels.length ? `Niyetten algılanan özellikler: ${f.labels.join(', ')}.` : 'Niyette ek özellik bulunamadı; temel paket üretildi.');
-  return { devices: [...cores, ...accesses], cores, accesses, links, vlans: campusVlans(), dual, f, coreCount: cores.length, accessCount: accesses.length, notes };
+  const labels = [...f.labels];
+  if (virt) labels.push(virt.layered ? `${VIRT_NAME[virt.kind]} (2 çift, çok katmanlı)` : VIRT_NAME[virt.kind]);
+  else if (fhrpSel !== 'none' && cores.length > 1) labels.push(`FHRP: ${(campusFhrpFor(cores[0].vendor, fhrpSel).kind || '').toUpperCase()}`);
+  if (virt && virt.kind === 'vpc' && fhrpSel !== 'none') labels.push(`FHRP: ${(fhrpSel === 'auto' || fhrpSel === 'glbp' ? 'hsrp' : fhrpSel).toUpperCase()}`);
+  if (grouped && logical.some(a => a.stack > 1)) labels.push(`access stack (${stackN} üyeli)`);
+  notes.push(labels.length ? `Niyetten algılanan özellikler: ${labels.join(', ')}.` : 'Niyette ek özellik bulunamadı; temel paket üretildi.');
+  return { devices: [...cores, ...logical], cores, accesses: logical, accPhys, links, interLinks, vlans: campusVlans(), dual, f: { ...f, labels }, virt, fhrp, interlink, stackN, coreCount: cores.length, accessCount: logical.length, accessPhysCount: accPhys.length, notes };
 }
 
 function campusLinksOf(inv, d) { return inv.links.filter(l => (d.role === 'core' ? l.core.id : l.access.id) === d.id); }
 function campusRadius() { return (inputValue('radiusServers', '10.10.10.20, 10.10.10.21').split(',').map(x => x.trim()).filter(Boolean)); }
 function campusDnsHint() { return '<DNS_IP>'; }
+const hex2 = n => (n % 256).toString(16).padStart(2, '0');
 
+// ----- Cisco Nexus (NX-OS): vPC, çok katmanlı vPC (çift taraflı) -----
+function campusNxosDevice(d, inv) {
+  const f = inv.f; const vlanIds = inv.vlans.map(v => v.id).join(','); const pi = campusPairInfo(inv, d);
+  const gw = campusIsGw(inv, d); const idx = pi ? pi.i : 0;
+  const fk = inv.fhrp === 'none' ? null : (inv.fhrp === 'vrrp' ? 'vrrp' : 'hsrp');
+  const protectedIds = inv.vlans.filter(v => !isManagementVlan(v)).map(v => v.id);
+  const mine = campusLinksOf(inv, d);
+  const L = [`! ===== ${d.hostname} · ${d.model} · NX-OS${pi ? ` · vPC (domain ${idx + 1})` : ''} =====`, '! Arayüz adlarını model ve port numaralandırmasına göre doğrulayın', `hostname ${d.hostname}`, 'feature ssh', 'no feature telnet', 'feature lacp', 'feature interface-vlan'];
+  if (pi) L.push('feature vpc');
+  if (gw && fk === 'hsrp') L.push('feature hsrp'); if (gw && fk === 'vrrp') L.push('feature vrrp');
+  if (gw && f.ospf) L.push('feature ospf'); if (gw && f.dhcp) L.push('feature dhcp', 'ip dhcp relay');
+  if (f.hardening) L.push('ntp server 10.10.20.10 use-vrf management', 'logging server 10.10.30.20', 'username breakglass password <LOCAL_SECRET_FROM_VAULT> role network-admin', 'snmp-server user <SNMPV3_USER> network-admin auth sha <AUTH_FROM_VAULT> priv aes-128 <PRIV_FROM_VAULT>');
+  const prio = pi ? (idx === 0 ? 4096 : 8192) : (d.idx === 0 ? 4096 : d.idx === 1 ? 8192 : 0);
+  L.push('spanning-tree mode rapid-pvst', ...(prio ? [`spanning-tree vlan ${vlanIds} priority ${prio}`] : []));
+  inv.vlans.forEach(v => L.push(`vlan ${v.id}`, ` name ${v.name}`));
+  L.push('interface mgmt0', ' vrf member management', ` ip address ${d.mgmt}`);
+  if (pi) {
+    L.push(`vpc domain ${idx + 1}`, ' peer-switch', ` role priority ${d === pi.pair.a ? 100 : 200}`, ` peer-keepalive destination ${ipOnly(pi.peer.mgmt)} source ${ipOnly(d.mgmt)} vrf management`, ' peer-gateway', ' auto-recovery', ' ip arp synchronize',
+      'interface port-channel1000', ' description VPC-PEER-LINK', ' switchport mode trunk', ' vpc peer-link');
+    campusInterPorts('cisco', 0, true).forEach(p => L.push(`interface ${p}`, ' description VPC-PEER-LINK', ' switchport mode trunk', ' channel-group 1000 mode active'));
+  }
+  if (gw) {
+    inv.vlans.forEach(v => {
+      const mg = isManagementVlan(v); const vip = mg ? managementAddress(1) : gatewayAddress(v.id, 1); const pip = mg ? d.mgmt : gatewayAddress(v.id, (pi ? (d === pi.pair.a ? 0 : 1) : d.idx) + 2); const g = v.id % 256 || 1; const pr = (pi ? d === pi.pair.a : d.idx === 0) ? 110 : 100;
+      L.push(`interface Vlan${v.id}`, ' no shutdown', ` description GW_${v.name}`, ` ip address ${ipOnly(pip)}/${netInfo(pip).prefix}`);
+      if (fk === 'hsrp') L.push(` hsrp ${g}`, `  ip ${ipOnly(vip)}`, `  priority ${pr}`, '  preempt');
+      if (fk === 'vrrp') L.push(` vrrp ${g}`, `  address ${ipOnly(vip)}`, `  priority ${pr}`, '  no shutdown');
+      if (f.ospf) L.push(' ip router ospf 10 area 0.0.0.0');
+      if (f.dhcp) L.push(' ip dhcp relay address <DHCP_SERVER_IP>');
+    });
+  }
+  const lagBlock = (lag, desc, vpc) => ['interface port-channel' + lag, ` description ${desc}`, ' switchport mode trunk', ` switchport trunk allowed vlan ${vlanIds}`, ...(vpc ? [` vpc ${lag}`] : [])];
+  const member = (port, desc, lag) => [`interface ${port}`, ` description ${desc}`, ' switchport mode trunk', ` channel-group ${lag} mode active`];
+  if (pi) {
+    const ids = new Set([pi.pair.a.id, pi.pair.b.id]);
+    [...new Set(inv.links.filter(l => ids.has(l.core.id)).map(l => l.lag))].forEach(lag => { const acc = inv.links.find(l => l.lag === lag).access; L.push(...lagBlock(lag, `MEC${lag}-${acc.hostname}`, true)); inv.links.filter(l => l.lag === lag && l.core.id === d.id).forEach(l => L.push(...member(l.cPort, `MEC${lag}-${l.access.hostname}-${l.aPort}`, lag))); });
+    if (inv.virt.layered) { L.push(...lagBlock(200, 'DOUBLE-SIDED-VPC-INTER-PAIR', true)); inv.interLinks.forEach(il => { if (il.x.id === d.id) L.push(...member(il.xPort, `MEC200-${il.y.hostname}`, 200)); if (il.y.id === d.id) L.push(...member(il.yPort, `MEC200-${il.x.hostname}`, 200)); }); }
+  } else {
+    mine.forEach(l => L.push(`interface ${l.cPort}`, ` description TO-${l.access.hostname}-${l.aPort}`, ' switchport mode trunk', ` switchport trunk allowed vlan ${vlanIds}`, ' no shutdown'));
+    if (inv.interlink && (d === inv.interlink.a || d === inv.interlink.b)) { L.push(...lagBlock(255, 'INTER-CORE', false)); campusInterPorts('cisco', 0, true).forEach(p => L.push(...member(p, 'INTER-CORE-LINK', 255))); }
+  }
+  if (gw && f.dhcp) L.push('! NX-OS DHCP sunucusu desteklemez; relay adresini gerçek DHCP sunucusuyla değiştirin');
+  if (gw && f.ospf) L.push('router ospf 10', ` router-id ${ipOnly(d.mgmt)}`, ' passive-interface default');
+  if (gw && f.defaultRoute) L.push(`ip route 0.0.0.0/0 ${f.defaultRoute}`);
+  void protectedIds;
+  return L.join('\n');
+}
+
+// ----- Cisco -----
 function campusCiscoDevice(d, inv) {
+  if (campusIsNxos(d)) return campusNxosDevice(d, inv);
   const f = inv.f; const vlanIds = inv.vlans.map(v => v.id).join(',');
   const protectedIds = inv.vlans.filter(v => !isManagementVlan(v)).map(v => v.id); const protectedVlans = protectedIds.join(',');
   const vlanDefs = inv.vlans.map(v => `vlan ${v.id}\n name ${v.name}`).join('\n');
@@ -339,39 +526,70 @@ function campusCiscoDevice(d, inv) {
   const common = [...base, ...(f.hardening ? ['spanning-tree portfast bpduguard default'] : []), ...aaa, ...hard].join('\n');
   const mine = campusLinksOf(inv, d);
   const trust = f.l2sec ? [' ip dhcp snooping trust', ' ip arp inspection trust'] : [];
-  const trunk = (port, desc) => [`interface ${port}`, ` description ${desc}`, ' switchport mode trunk', ` switchport trunk allowed vlan ${vlanIds}`, ...trust, ' no shutdown'].join('\n');
+  const trunk = (port, desc, lag) => [`interface ${port}`, ` description ${desc}`, ...(lag ? [` channel-group ${lag} mode active`, ' no shutdown'] : [' switchport mode trunk', ` switchport trunk allowed vlan ${vlanIds}`, ...trust, ' no shutdown'])].join('\n');
+  const poBlock = lag => [`interface Port-channel${lag}`, ` description MEC-${lag}`, ' switchport mode trunk', ` switchport trunk allowed vlan ${vlanIds}`, ...trust].join('\n');
   const l2lines = f.l2sec ? ['ip dhcp snooping', `ip dhcp snooping vlan ${protectedVlans}`, `ip arp inspection vlan ${protectedVlans}`] : [];
-  const head = [`! ===== ${d.hostname} · ${d.model} =====`, '! Arayüz adlarını model ve port numaralandırmasına göre doğrulayın', `hostname ${d.hostname}`, common];
+  const head = (suffix) => [`! ===== ${d.hostname} · ${d.model}${suffix || ''} =====`, '! Arayüz adlarını model ve port numaralandırmasına göre doğrulayın', `hostname ${d.hostname}`, common];
+  const fh = campusFhrpFor('cisco', inv.f && inv.fhrp !== undefined ? inv.fhrp : 'auto');
+
   if (d.role === 'core') {
-    const svis = inv.vlans.map(v => {
-      const mg = isManagementVlan(v); const vip = mg ? managementAddress(1) : gatewayAddress(v.id, 1); const pip = mg ? d.mgmt : gatewayAddress(v.id, d.idx + 2); const g = v.id % 256 || 1;
-      return [`interface Vlan${v.id}`, ` description GW_${v.name}`, ` ip address ${ipOnly(pip)} ${netInfo(pip).mask}`, ` standby ${g} ip ${ipOnly(vip)}`, ` standby ${g} priority ${d.idx === 0 ? 110 : 100}`, ` standby ${g} preempt`, ...(f.ospf ? [' ip ospf 10 area 0'] : []), ' no shutdown'].join('\n');
-    }).join('\n');
-    const root = d.idx === 0 ? 'primary' : d.idx === 1 ? 'secondary' : '';
-    const dhcp = f.dhcp && d.idx === 0 ? ['! DHCP sunucusu bu core üzerinde (sanal gateway adresiyle)', ...protectedIds.flatMap(id => { const v = inv.vlans.find(x => x.id === id); const gw = gatewayAddress(id, 1); const ni = netInfo(gw); const base3 = ipOnly(gw).split('.').slice(0, 3).join('.'); return [`ip dhcp excluded-address ${base3}.1 ${base3}.10`, `ip dhcp pool VLAN${id}_${v.name}`, ` network ${ni.net} ${ni.mask}`, ` default-router ${ipOnly(gw)}`, ` dns-server ${campusDnsHint()}`, ' lease 1']; })] : [];
-    const ospf = f.ospf ? ['router ospf 10', ` router-id ${ipOnly(d.mgmt)}`, ' passive-interface default', ' no passive-interface <UPSTREAM_INTERFACE>', ...inv.vlans.map(v => { const ni = netInfo(isManagementVlan(v) ? d.mgmt : gatewayAddress(v.id, d.idx + 2)); return ` network ${ni.net} ${ni.wildcard} area 0`; })] : [];
-    const dr = f.defaultRoute ? [`ip route 0.0.0.0 0.0.0.0 ${f.defaultRoute}`] : [];
-    return [...head, 'ip routing', vlanDefs, ...l2lines, svis, mine.map(l => trunk(l.cPort, `TO-${l.access.hostname}-${l.aPort}`)).join('\n'), root ? `spanning-tree vlan ${vlanIds} root ${root}` : '', ...dhcp, ...ospf, ...dr, 'end'].filter(Boolean).join('\n');
+    const virt = inv.virt; const pi = campusPairInfo(inv, d); const isVirt = Boolean(pi);
+    const chassis = isVirt ? pi.chassis : 0; const gw = campusIsGw(inv, d); const dom = isVirt ? pi.i + 1 : 0;
+    const svl = isVirt ? ['stackwise-virtual', ` domain ${dom}`, `interface TenGigabitEthernet${chassis}/0/47`, ' stackwise-virtual link 1', `interface TenGigabitEthernet${chassis}/0/48`, ' stackwise-virtual link 1', `interface TenGigabitEthernet${chassis}/0/46`, ' stackwise-virtual dual-active-detection', '! Chassis\'i yeniden başlatın; SVL oluştuktan sonra tüm yapılandırma active chassis üzerinden yönetilir'] : [];
+    if (isVirt && chassis === 2) return [...head(` · StackWise Virtual (domain ${dom}, chassis 2)`), ...svl, '! Bu chassis SVL sonrası aktif chassis ile birleşir; mantıksal yapılandırma yalnızca chassis 1 üzerinde uygulanır.', 'end'].join('\n');
+    const mgmtVlan = inv.vlans.find(isManagementVlan) || inv.vlans.at(-1);
+    const svis = gw ? inv.vlans.map(v => {
+      const vip = isManagementVlan(v) ? managementAddress(1) : gatewayAddress(v.id, 1); const pip = isVirt ? vip : (isManagementVlan(v) ? d.mgmt : gatewayAddress(v.id, d.idx + 2)); const g = v.id % 256 || 1; const prio = d.idx === 0 ? 110 : 100;
+      const l = [`interface Vlan${v.id}`, ` description GW_${v.name}`, ` ip address ${ipOnly(pip)} ${netInfo(pip).mask}`];
+      if (!isVirt && fh.kind === 'hsrp') l.push(` standby ${g} ip ${ipOnly(vip)}`, ` standby ${g} priority ${prio}`, ` standby ${g} preempt`);
+      if (!isVirt && fh.kind === 'vrrp') l.push(` vrrp ${g} address-family ipv4`, `  address ${ipOnly(vip)} primary`, `  priority ${prio}`, '  preempt');
+      if (!isVirt && fh.kind === 'glbp') l.push(` glbp ${g} ip ${ipOnly(vip)}`, ` glbp ${g} priority ${prio}`, ` glbp ${g} preempt`, ` glbp ${g} load-balancing round-robin`);
+      if (f.ospf) l.push(' ip ospf 10 area 0'); l.push(' no shutdown'); return l.join('\n');
+    }).join('\n') : [`interface Vlan${mgmtVlan.id}`, ' description MANAGEMENT', ` ip address ${ipOnly(d.mgmt)} ${netInfo(d.mgmt).mask}`, ' no shutdown'].join('\n');
+    const root = isVirt ? (pi.i === 0 ? 'primary' : 'secondary') : (d.idx === 0 ? 'primary' : d.idx === 1 ? 'secondary' : '');
+    let links = '';
+    if (isVirt) {
+      const pairIds = new Set([pi.pair.a.id, pi.pair.b.id]);
+      const lags = [...new Set(inv.links.filter(l => pairIds.has(l.core.id)).map(l => l.lag))];
+      links = lags.map(lag => poBlock(lag) + '\n' + inv.links.filter(l => l.lag === lag).map(l => trunk(l.cPort, `MEC${lag}-${l.access.hostname}-${l.aPort}`, lag)).join('\n')).join('\n');
+      if (virt.layered) {
+        const mem = inv.interLinks.flatMap(il => [pairIds.has(il.x.id) ? { port: il.xPort, peer: il.y.hostname } : null, pairIds.has(il.y.id) ? { port: il.yPort, peer: il.x.hostname } : null].filter(Boolean));
+        links += (links ? '\n' : '') + poBlock(200).replace('MEC-200', 'MEC-INTER-PAIR') + '\n' + mem.map(m => trunk(m.port, `MEC200-${m.peer}`, 200)).join('\n');
+      }
+    } else links = mine.map(l => trunk(l.cPort, `TO-${l.access.hostname}-${l.aPort}`)).join('\n');
+    const inter = inv.interlink && (d === inv.interlink.a || d === inv.interlink.b) ? [poBlock(255).replace('MEC-255', 'INTER-CORE'), ...campusInterPorts('cisco', 0, false).map(p => trunk(p, 'INTER-CORE-LINK', 255))] : [];
+    const dhcp = gw && f.dhcp && d.idx === 0 ? ['! DHCP sunucusu bu core üzerinde (sanal gateway adresiyle)', ...protectedIds.flatMap(id => { const v = inv.vlans.find(x => x.id === id); const g1 = gatewayAddress(id, 1); const ni = netInfo(g1); const base3 = ipOnly(g1).split('.').slice(0, 3).join('.'); return [`ip dhcp excluded-address ${base3}.1 ${base3}.10`, `ip dhcp pool VLAN${id}_${v.name}`, ` network ${ni.net} ${ni.mask}`, ` default-router ${ipOnly(g1)}`, ` dns-server ${campusDnsHint()}`, ' lease 1']; })] : [];
+    const ospf = gw && f.ospf ? ['router ospf 10', ` router-id ${ipOnly(d.mgmt)}`, ' passive-interface default', ' no passive-interface <UPSTREAM_INTERFACE>', ...inv.vlans.map(v => { const ni = netInfo(isVirt ? gatewayAddress(v.id, 1) : (isManagementVlan(v) ? d.mgmt : gatewayAddress(v.id, d.idx + 2))); return ` network ${ni.net} ${ni.wildcard} area 0`; })] : [];
+    const dr = gw && f.defaultRoute ? [`ip route 0.0.0.0 0.0.0.0 ${f.defaultRoute}`] : [];
+    return [...head(isVirt ? ` · StackWise Virtual (domain ${dom}, chassis 1)` : ''), ...svl, ...(!isVirt && fh.kind === 'vrrp' ? ['fhrp version vrrp v3'] : []), ...(gw ? ['ip routing'] : []), vlanDefs, ...l2lines, svis, links, ...inter, root ? `spanning-tree vlan ${vlanIds} root ${root}` : '', ...dhcp, ...ospf, ...dr, 'end'].filter(Boolean).join('\n');
   }
+  // access (mantıksal: stack olabilir)
   const mgmtVlan = inv.vlans.find(isManagementVlan) || inv.vlans.at(-1);
   const n = d.ports; const userEnd = Math.floor(n / 2); const dataEnd = n - 4;
   const voice = (inv.vlans.find(v => /VOICE/i.test(v.name)) || inv.vlans[0]).id; const data = inv.vlans[2] || inv.vlans[0];
   const dotGlobal = f.dot1x ? ['dot1x system-auth-control', 'aaa authentication dot1x default group radius', 'aaa authorization network default group radius', 'aaa accounting dot1x default start-stop group radius', ...radius.flatMap((ip, i) => [`radius server NAC-${i + 1}`, ` address ipv4 ${ip} auth-port 1812 acct-port 1813`, ' key <RADIUS_SECRET>']), 'radius-server dead-criteria time 5 tries 3', 'aaa server radius dynamic-author', ` client ${radius[0] || '<RADIUS_IP>'} server-key <COA_KEY>`] : [];
   const dotPort = f.dot1x ? [' authentication port-control auto', ' dot1x pae authenticator', ' mab', ' authentication order dot1x mab', ' authentication priority dot1x mab', ' authentication host-mode multi-domain', ' authentication periodic', ' authentication timer reauthenticate server', ' authentication event server dead action authorize vlan <CRITICAL_VLAN>'] : [];
   const portProt = f.l2sec ? [' ip verify source', ' spanning-tree portfast', ' spanning-tree bpduguard enable'] : [' spanning-tree portfast'];
-  return [...head, ...dotGlobal, vlanDefs, ...l2lines,
+  const stackLines = d.stack > 1 ? ['! StackWise stack: kabloları bağlayıp switch numaralarını/önceliklerini doğrulayın', ...d.members.flatMap((m, i) => [`switch ${i + 1} provision ${m.model.toLowerCase()}`, `switch ${i + 1} priority ${15 - i}`])] : [];
+  const memberPorts = d.members.flatMap((_, i) => { const mi = i + 1; return [
+    `interface range GigabitEthernet${mi}/0/1-${userEnd}`, ' description USER_AND_VOICE', ' switchport mode access', ` switchport access vlan ${inv.vlans[0].id}`, ` switchport voice vlan ${voice}`, ...dotPort, ...portProt,
+    `interface range GigabitEthernet${mi}/0/${userEnd + 1}-${dataEnd}`, ` description ${data.name}`, ' switchport mode access', ` switchport access vlan ${data.id}`, ...dotPort, ...portProt,
+    `interface range GigabitEthernet${mi}/0/${dataEnd + 1}-${n}`, ' description UNUSED_SHUTDOWN', ' shutdown']; });
+  const mine2 = campusLinksOf(inv, d);
+  let upl;
+  if (inv.virt) { const lags = [...new Set(mine2.map(l => l.lag))]; upl = lags.map(lag => poBlock(lag) + '\n' + mine2.filter(l => l.lag === lag).map(l => trunk(l.aPort, `MEC${lag}-${l.core.hostname}-${l.cPort}`, lag)).join('\n')).join('\n'); }
+  else upl = mine2.map(l => trunk(l.aPort, `TO-${l.core.hostname}-${l.cPort}`)).join('\n');
+  return [...head(d.stack > 1 ? ` · ${d.stack} üyeli stack` : ''), ...stackLines, ...dotGlobal, vlanDefs, ...l2lines,
     `interface Vlan${mgmtVlan.id}`, ' description MANAGEMENT', ` ip address ${ipOnly(d.mgmt)} ${netInfo(d.mgmt).mask}`, ' no shutdown', `ip default-gateway ${ipOnly(managementAddress(1))}`,
-    `interface range GigabitEthernet1/0/1-${userEnd}`, ' description USER_AND_VOICE', ' switchport mode access', ` switchport access vlan ${inv.vlans[0].id}`, ` switchport voice vlan ${voice}`, ...dotPort, ...portProt,
-    `interface range GigabitEthernet1/0/${userEnd + 1}-${dataEnd}`, ` description ${data.name}`, ' switchport mode access', ` switchport access vlan ${data.id}`, ...dotPort, ...portProt,
-    `interface range GigabitEthernet1/0/${dataEnd + 1}-${n}`, ' description UNUSED_SHUTDOWN', ' shutdown',
-    mine.map(l => trunk(l.aPort, `TO-${l.core.hostname}-${l.cPort}`)).join('\n'), 'end'].filter(Boolean).join('\n');
+    ...memberPorts, upl, 'end'].filter(Boolean).join('\n');
 }
 
+// ----- Aruba AOS-CX / Huawei VRP -----
 function campusGenericDevice(d, inv) {
   const f = inv.f; const aruba = d.vendor === 'aruba', cm = aruba ? '!' : '#', label = aruba ? 'AOS-CX' : 'VRP';
   const vlanIds = inv.vlans.map(v => v.id);
   const protectedIds = inv.vlans.filter(v => !isManagementVlan(v)).map(v => v.id);
-  const radius = campusRadius(); const mine = campusLinksOf(inv, d);
+  const radius = campusRadius(); const mine = campusLinksOf(inv, d); const virt = inv.virt;
   const vlanLines = inv.vlans.map(v => (aruba ? `vlan ${v.id}\n name ${v.name}` : `vlan ${v.id}\n description ${v.name}\nquit`)).join('\n');
   const head = aruba
     ? [`hostname ${d.hostname}`, 'ssh server vrf default', 'spanning-tree', 'spanning-tree mode rpvst', ...(f.hardening ? ['no telnet server vrf default', 'no telnet server vrf mgmt', 'user breakglass group administrators password ciphertext <LOCAL_SECRET_FROM_VAULT>', 'ntp server 10.10.20.10 iburst prefer', 'logging 10.10.30.20'] : [])]
@@ -379,31 +597,64 @@ function campusGenericDevice(d, inv) {
   const snoop = !f.l2sec ? [] : aruba
     ? ['dhcpv4-snooping', ...protectedIds.map(id => `vlan ${id}\n dhcpv4-snooping`), `arp inspection vlan ${protectedIds.join(',')}`]
     : ['dhcp enable', 'dhcp snooping enable', ...protectedIds.map(id => `vlan ${id}\n dhcp snooping enable\nquit`), 'arp anti-attack check user-bind enable'];
-  const trunk = (port, desc) => (aruba
-    ? [`interface ${port}`, ` description ${desc}`, ' no shutdown', ' no routing', ' vlan trunk native 999', ` vlan trunk allowed ${vlanIds.join(',')}`, ...(f.l2sec ? [' dhcpv4-snooping trust', ' arp inspection trust'] : [])].join('\n')
-    : [`interface ${port}`, ` description ${desc}`, ' port link-type trunk', ' port trunk pvid vlan 999', ` port trunk allow-pass vlan ${vlanIds.join(' ')}`, ...(f.l2sec ? [' dhcp snooping trusted'] : []), 'quit'].join('\n'));
+  const trunk = (port, desc, lag) => (aruba
+    ? [`interface ${port}`, ` description ${desc}`, ' no shutdown', ...(lag ? [` lag ${lag}`] : [' no routing', ' vlan trunk native 999', ` vlan trunk allowed ${vlanIds.join(',')}`, ...(f.l2sec ? [' dhcpv4-snooping trust', ' arp inspection trust'] : [])])].join('\n')
+    : [`interface ${port}`, ` description ${desc}`, ...(lag ? [` eth-trunk ${lag}`] : [' port link-type trunk', ' port trunk pvid vlan 999', ` port trunk allow-pass vlan ${vlanIds.join(' ')}`, ...(f.l2sec ? [' dhcp snooping trusted'] : [])]), 'quit'].join('\n'));
+  const lagBlock = (lag, multi) => (aruba
+    ? [`interface lag ${lag}${multi ? ' multi-chassis' : ''}`, ` description LAG-${lag}`, ' no shutdown', ' no routing', ' vlan trunk native 999', ` vlan trunk allowed ${vlanIds.join(',')}`, ' lacp mode active', ...(f.l2sec ? [' dhcpv4-snooping trust', ' arp inspection trust'] : [])].join('\n')
+    : [`interface Eth-Trunk ${lag}`, ` description LAG-${lag}`, ' mode lacp-static', ' port link-type trunk', ' port trunk pvid vlan 999', ` port trunk allow-pass vlan ${vlanIds.join(' ')}`, ...(multi ? [` dfs-group 1 m-lag ${lag}`] : []), ...(f.l2sec ? [' dhcp snooping trusted'] : []), 'quit'].join('\n'));
   const body = [];
   if (d.role === 'core') {
-    inv.vlans.forEach(v => {
-      const mg = isManagementVlan(v); const vip = mg ? managementAddress(1) : gatewayAddress(v.id, 1); const pip = mg ? d.mgmt : gatewayAddress(v.id, d.idx + 2); const g = v.id % 256 || 1; const prio = d.idx === 0 ? 110 : 100;
-      body.push(aruba
+    const pi = campusPairInfo(inv, d); const isVirt = Boolean(pi); const primary = isVirt && pi.chassis === 1; const chassis = isVirt ? pi.chassis : 0;
+    const peer = isVirt ? pi.peer : null; const gw = campusIsGw(inv, d); const dom = isVirt ? pi.i + 1 : 0; const kind = isVirt ? virt.kind : null;
+    const mgmtV = inv.vlans.find(isManagementVlan) || inv.vlans.at(-1);
+    if (isVirt) {
+      const ip = campusInterPorts(d.vendor, chassis, false);
+      if (kind === 'vsx') {
+        body.push([`interface lag 256`, ' description VSX-ISL', ' no shutdown', ' no routing', ' vlan trunk native 1', ' vlan trunk allowed all', ' lacp mode active', ...ip.flatMap(p => [`interface ${p}`, ' no shutdown', ' lag 256']),
+          'vsx', ` system-mac 02:00:00:00:0${dom}:00`, ' inter-switch-link lag 256', ` role ${primary ? 'primary' : 'secondary'}`, ` keepalive peer ${ipOnly(peer.mgmt)} source ${ipOnly(d.mgmt)} vrf mgmt`].join('\n'));
+      } else if (kind === 'mlag') {
+        body.push([`dfs-group ${dom}`, ` source ip ${ipOnly(d.mgmt)}`, ` priority ${primary ? 150 : 100}`, 'quit', 'interface Eth-Trunk 0', ' description PEER-LINK', ' mode lacp-static', ' peer-link 1', 'quit', ...ip.flatMap(p => [`interface ${p}`, ' eth-trunk 0', 'quit']), `# M-LAG komşu IP (peer): ${ipOnly(peer.mgmt)}`].join('\n'));
+      } else {
+        body.push([`# ${VIRT_NAME[kind]} komutları ve kablolama platform dokümanına göre doğrulanmalıdır`, kind === 'css' ? 'css enable' : `stack slot 0 priority ${primary ? 200 : 100}`, ...(kind === 'css' ? [`css priority ${primary ? 100 : 10}`] : ['stack slot 0 renumber ' + chassis]), `# Stack/CSS bağlantı portları: ${ip.join(', ')}`].join('\n'));
+      }
+    }
+    const sharedGw = isVirt && kind !== 'vsx' && kind !== 'mlag'; // CSS/iStack: tek mantıksal cihaz
+    if (gw) inv.vlans.forEach(v => {
+      const mg = isManagementVlan(v); const vip = mg ? managementAddress(1) : gatewayAddress(v.id, 1); const g = v.id % 256 || 1; const prio = (isVirt ? primary : d.idx === 0) ? 110 : 100;
+      const pip = sharedGw ? vip : mg ? d.mgmt : gatewayAddress(v.id, (isVirt ? chassis - 1 : d.idx) + 2);
+      if (isVirt && kind === 'vsx' && aruba) body.push([`interface vlan ${v.id}`, ` description GW_${v.name}`, ` ip address ${pip}`, ...(f.ospf ? [' ip ospf 1 area 0.0.0.0'] : []), ` active-gateway ip mac 02:00:00:00:0${dom}:${hex2(g)}`, ` active-gateway ip ${ipOnly(vip)}`].join('\n'));
+      else if (sharedGw || inv.fhrp === 'none') body.push(aruba ? [`interface vlan ${v.id}`, ` description GW_${v.name}`, ` ip address ${pip}`].join('\n') : [`interface Vlanif${v.id}`, ` description GW_${v.name}`, ` ip address ${ipOnly(pip)} ${netInfo(pip).mask}`, 'quit'].join('\n'));
+      else body.push(aruba
         ? [`interface vlan ${v.id}`, ` description GW_${v.name}`, ` ip address ${pip}`, ...(f.ospf ? [' ip ospf 1 area 0.0.0.0'] : []), ` vrrp ${g} address-family ipv4`, `  address ${ipOnly(vip)} primary`, `  priority ${prio}`, '  no shutdown'].join('\n')
         : [`interface Vlanif${v.id}`, ` description GW_${v.name}`, ` ip address ${ipOnly(pip)} ${netInfo(pip).mask}`, ` vrrp vrid ${g} virtual-ip ${ipOnly(vip)}`, ` vrrp vrid ${g} priority ${prio}`, ...(f.dhcp && d.idx === 0 && !mg ? [' dhcp select global'] : []), 'quit'].join('\n'));
     });
-    mine.forEach(l => body.push(trunk(l.cPort, `TO-${l.access.hostname}-${l.aPort}`)));
-    body.push(aruba ? `spanning-tree priority ${d.idx === 0 ? 0 : d.idx === 1 ? 1 : 8}` : `stp ${d.idx === 0 ? 'root primary' : d.idx === 1 ? 'root secondary' : 'priority 32768'}`);
-    if (f.dhcp && d.idx === 0) {
+    else body.push(aruba ? [`interface vlan ${mgmtV.id}`, ' description MANAGEMENT', ` ip address ${d.mgmt}`].join('\n') : [`interface Vlanif${mgmtV.id}`, ' description MANAGEMENT', ` ip address ${ipOnly(d.mgmt)} ${netInfo(d.mgmt).mask}`, 'quit'].join('\n'));
+    if (isVirt) {
+      const ids = new Set([pi.pair.a.id, pi.pair.b.id]); const multi = kind === 'vsx' || kind === 'mlag';
+      [...new Set(inv.links.filter(l => ids.has(l.core.id)).map(l => l.lag))].forEach(lag => { body.push(lagBlock(lag, multi)); inv.links.filter(l => l.lag === lag && l.core.id === d.id).forEach(l => body.push(trunk(l.cPort, `MEC${lag}-${l.access.hostname}-${l.aPort}`, lag))); });
+      if (virt.layered) { body.push(lagBlock(200, multi)); inv.interLinks.forEach(il => { if (il.x.id === d.id) body.push(trunk(il.xPort, `MEC200-${il.y.hostname}`, 200)); if (il.y.id === d.id) body.push(trunk(il.yPort, `MEC200-${il.x.hostname}`, 200)); }); }
+    } else {
+      mine.forEach(l => body.push(trunk(l.cPort, `TO-${l.access.hostname}-${l.aPort}`)));
+      if (inv.interlink && (d === inv.interlink.a || d === inv.interlink.b)) { body.push(lagBlock(255, false).replace(/LAG-255/, 'INTER-CORE')); campusInterPorts(d.vendor).forEach(p => body.push(trunk(p, 'INTER-CORE-LINK', 255))); }
+    }
+    if (!isVirt) body.push(aruba ? `spanning-tree priority ${d.idx === 0 ? 0 : d.idx === 1 ? 1 : 8}` : `stp ${d.idx === 0 ? 'root primary' : d.idx === 1 ? 'root secondary' : 'priority 32768'}`);
+    else if (primary) body.push(aruba ? `spanning-tree priority ${pi.i === 0 ? 0 : 1}` : (pi.i === 0 ? 'stp root primary' : 'stp root secondary'));
+    if (gw && f.dhcp && d.idx === 0) {
       body.push('! DHCP sunucusu bu core üzerinde (sanal gateway adresiyle)');
       if (aruba) body.push(['dhcp-server vrf default', ...protectedIds.flatMap(id => { const v = inv.vlans.find(x => x.id === id); const gw = gatewayAddress(id, 1); const b3 = ipOnly(gw).split('.').slice(0, 3).join('.'); return [` pool VLAN${id}_${v.name}`, `  range ${b3}.11 ${b3}.250 prefix-len ${netInfo(gw).prefix}`, `  default-router ${ipOnly(gw)}`, `  dns-server ${campusDnsHint()}`, '  lease 01:00:00', '  enable']; })].join('\n'));
       else protectedIds.forEach(id => { const v = inv.vlans.find(x => x.id === id); const gw = gatewayAddress(id, 1); const ni = netInfo(gw); body.push([`ip pool VLAN${id}_${v.name}`, ` gateway-list ${ipOnly(gw)}`, ` network ${ni.net} mask ${ni.mask}`, ` dns-list ${campusDnsHint()}`, ' lease day 1', 'quit'].join('\n')); });
     }
-    if (f.ospf) {
+    if (gw && f.ospf) {
       if (aruba) body.push(['router ospf 1', ` router-id ${ipOnly(d.mgmt)}`, ' passive-interface default', ' area 0.0.0.0', '! Upstream L3 arayüzünde: ip ospf 1 area 0.0.0.0 ve passive-interface kapatılmalı'].join('\n'));
-      else body.push(['ospf 10 router-id ' + ipOnly(d.mgmt), ' silent-interface all', ' undo silent-interface <UPSTREAM_INTERFACE>', ' area 0.0.0.0', ...inv.vlans.map(v => { const ni = netInfo(isManagementVlan(v) ? d.mgmt : gatewayAddress(v.id, d.idx + 2)); return `  network ${ni.net} ${ni.wildcard}`; }), 'quit'].join('\n'));
+      else body.push(['ospf 10 router-id ' + ipOnly(d.mgmt), ' silent-interface all', ' undo silent-interface <UPSTREAM_INTERFACE>', ' area 0.0.0.0', ...inv.vlans.map(v => { const ni = netInfo(isVirt ? gatewayAddress(v.id, 1) : (isManagementVlan(v) ? d.mgmt : gatewayAddress(v.id, d.idx + 2))); return `  network ${ni.net} ${ni.wildcard}`; }), 'quit'].join('\n'));
     }
-    if (f.defaultRoute) body.push(aruba ? `ip route 0.0.0.0/0 ${f.defaultRoute}` : `ip route-static 0.0.0.0 0.0.0.0 ${f.defaultRoute}`);
+    if (gw && f.defaultRoute) body.push(aruba ? `ip route 0.0.0.0/0 ${f.defaultRoute}` : `ip route-static 0.0.0.0 0.0.0.0 ${f.defaultRoute}`);
   } else {
     const mg = inv.vlans.find(isManagementVlan) || inv.vlans.at(-1); const n = d.ports; const userVlan = inv.vlans[0].id; const gw = ipOnly(managementAddress(1));
+    if (d.stack > 1) body.push(aruba
+      ? ['! VSF stack: üye numaraları, bağlantı portları ve rolleri doğrulayın', ...d.members.flatMap((m, i) => [`vsf member ${i + 1}`, ` role ${i === 0 ? 'primary' : 'secondary'}`, ` link 1 ${i + 1}/1/51`])].join('\n')
+      : ['# iStack: stack-port bağlantıları ve üye numaralarını doğrulayın', ...d.members.flatMap((m, i) => [`stack slot ${i} priority ${200 - 10 * i}`, `stack slot ${i} renumber ${i}`])].join('\n'));
     if (f.dot1x) {
       body.push(aruba
         ? [...radius.map(ip => `radius-server host ${ip} key plaintext <RADIUS_SECRET>`), 'radius dyn-authorization enable', `radius dyn-authorization client ${radius[0] || '<RADIUS_IP>'} secret-key plaintext <COA_KEY>`, 'aaa authentication port-access dot1x authenticator', ' enable', 'aaa authentication port-access mac-auth', ' enable'].join('\n')
@@ -412,23 +663,35 @@ function campusGenericDevice(d, inv) {
     body.push(aruba
       ? [`interface vlan ${mg.id}`, ' description MANAGEMENT', ` ip address ${d.mgmt}`, `ip route 0.0.0.0/0 ${gw}`].join('\n')
       : [`interface Vlanif${mg.id}`, ' description MANAGEMENT', ` ip address ${ipOnly(d.mgmt)} ${netInfo(d.mgmt).mask}`, 'quit', `ip route-static 0.0.0.0 0.0.0.0 ${gw}`].join('\n'));
-    body.push(aruba
-      ? [`interface 1/1/1-1/1/${n - 4}`, ' description USER_PORTS', ' no shutdown', ' no routing', ` vlan access ${userVlan}`, ' spanning-tree port-type admin-edge', ...(f.hardening || f.l2sec ? [' spanning-tree bpdu-guard'] : []), ...(f.l2sec ? [' ip source-lockdown'] : []), ...(f.dot1x ? [' aaa authentication port-access dot1x authenticator', '  enable', ' aaa authentication port-access mac-auth', '  enable'] : []), `interface 1/1/${n - 3}-1/1/${n}`, ' description UNUSED_SHUTDOWN', ' shutdown'].join('\n')
-      : ['port-group name USER_PORTS', ` group-member GigabitEthernet0/0/1 to GigabitEthernet0/0/${n - 4}`, ' port link-type access', ` port default vlan ${userVlan}`, ' stp edged-port enable', ...(f.l2sec ? [' ip source check user-bind enable'] : []), ...(f.dot1x ? [' authentication-profile CAMPUS_DOT1X'] : []), 'quit', 'port-group name UNUSED_PORTS', ` group-member GigabitEthernet0/0/${n - 3} to GigabitEthernet0/0/${n}`, ' description UNUSED_SHUTDOWN', ' shutdown', 'quit'].join('\n'));
-    mine.forEach(l => body.push(trunk(l.aPort, `TO-${l.core.hostname}-${l.cPort}`)));
+    d.members.forEach((_, i) => { const mi = i + 1;
+      body.push(aruba
+        ? [`interface ${mi}/1/1-${mi}/1/${n - 4}`, ' description USER_PORTS', ' no shutdown', ' no routing', ` vlan access ${userVlan}`, ' spanning-tree port-type admin-edge', ...(f.hardening || f.l2sec ? [' spanning-tree bpdu-guard'] : []), ...(f.l2sec ? [' ip source-lockdown'] : []), ...(f.dot1x ? [' aaa authentication port-access dot1x authenticator', '  enable', ' aaa authentication port-access mac-auth', '  enable'] : []), `interface ${mi}/1/${n - 3}-${mi}/1/${n}`, ' description UNUSED_SHUTDOWN', ' shutdown'].join('\n')
+        : [`port-group name USER_PORTS_${mi}`, ` group-member GigabitEthernet${mi - 1}/0/1 to GigabitEthernet${mi - 1}/0/${n - 4}`, ' port link-type access', ` port default vlan ${userVlan}`, ' stp edged-port enable', ...(f.l2sec ? [' ip source check user-bind enable'] : []), ...(f.dot1x ? [' authentication-profile CAMPUS_DOT1X'] : []), 'quit', `port-group name UNUSED_PORTS_${mi}`, ` group-member GigabitEthernet${mi - 1}/0/${n - 3} to GigabitEthernet${mi - 1}/0/${n}`, ' description UNUSED_SHUTDOWN', ' shutdown', 'quit'].join('\n')); });
+    if (virt) { [...new Set(mine.map(l => l.lag))].forEach(lag => { body.push(lagBlock(lag, false)); mine.filter(l => l.lag === lag).forEach(l => body.push(trunk(l.aPort, `MEC${lag}-${l.core.hostname}-${l.cPort}`, lag))); }); }
+    else mine.forEach(l => body.push(trunk(l.aPort, `TO-${l.core.hostname}-${l.cPort}`)));
   }
-  return [`${cm} ===== ${d.hostname} · ${d.model} · ${label} =====`, `${cm} Arayüz adlarını model ve port numaralandırmasına göre doğrulayın`, ...head, vlanLines, ...snoop, ...body, aruba ? '' : 'return'].filter(Boolean).join('\n');
+  return [`${cm} ===== ${d.hostname} · ${d.model} · ${label}${d.stack > 1 ? ` · ${d.stack} üyeli stack` : ''}${virt && d.role === 'core' ? ` · ${VIRT_NAME[virt.kind]}` : ''} =====`, `${cm} Arayüz adlarını model ve port numaralandırmasına göre doğrulayın`, ...head, vlanLines, ...snoop, ...body, aruba ? '' : 'return'].filter(Boolean).join('\n');
 }
 
 function campusReport(inv) {
-  const f = inv.f;
+  const f = inv.f; const virt = inv.virt;
+  const keepFhrp = !virt || virt.kind === 'vpc' || virt.kind === 'mlag';
+  const fk = campusFhrpFor(inv.cores[0] ? inv.cores[0].vendor : 'cisco', inv.fhrp).kind;
+  const gwLine = !keepFhrp ? `${VIRT_NAME[virt.kind]}: core çifti tek mantıksal gateway (FHRP gerekmez)` : inv.fhrp === 'none' ? 'FHRP yok (sanal gateway adresi tanımlanmadı)' : `Gateway yedekliliği: ${(inv.virt && inv.virt.kind === 'vpc' && fk === 'glbp' ? 'hsrp' : fk || 'hsrp').toUpperCase()}`;
   const L = ['CAMPUS TASARIM RAPORU', '', `${inv.coreCount} core · ${inv.accessCount} access · ${inv.vlans.length} VLAN`,
-    `Topoloji: ${inv.dual ? 'Her access iki core’a yedekli bağlı' : 'Tek uplink'}`, `Management gateway: ${managementAddress(1)}`, '', 'NİYETTEN ALGILANAN ÖZELLİKLER', f.labels.length ? f.labels.map(x => `- ${x}`).join('\n') : '- (ek özellik yok)', '', 'CİHAZ ENVANTERİ'];
-  inv.devices.forEach(d => L.push(`- ${d.hostname} (${d.role}) · ${vendorName(d.vendor)} ${d.model} · ${d.mgmt}`));
+    `Topoloji: ${inv.dual ? 'Her access iki core’a yedekli bağlı' : 'Tek uplink'}`, `Management gateway: ${managementAddress(1)}`, '', 'NİYETTEN ALGILANAN ÖZELLİKLER', f.labels.length ? f.labels.map(x => `- ${x}`).join('\n') : '- (ek özellik yok)', '', 'TOPOLOJİ SEÇİMLERİ', `- ${gwLine}`];
+  if (virt) virt.pairs.forEach((p, i) => L.push(`- ${VIRT_NAME[virt.kind]} çifti ${i + 1}: ${p.a.hostname} + ${p.b.hostname}${virt.layered ? (i === 0 ? ' (core / gateway)' : ' (aggregation / L2)') : ''}`));
+  if (virt && virt.layered) L.push('- İki çift arası: çift taraflı (double-sided) çok-şasili LAG (4 fiziksel bağlantı)');
+  if (inv.interlink) L.push(`- Core'lar arası bağlantı: Port-channel 255 (${campusInterPorts(inv.cores[0].vendor, 0, campusIsNxos(inv.cores[0])).join(', ')})`);
+  if (inv.accesses.some(a => a.stack > 1)) L.push(`- Access stack: ${inv.accesses.filter(a => a.stack > 1).map(a => `${a.hostname} ×${a.stack}`).join(', ')}`);
+  L.push('', 'CİHAZ ENVANTERİ');
+  inv.cores.forEach(d => L.push(`- ${d.hostname} (core) · ${vendorName(d.vendor)} ${d.model} · ${d.mgmt}`));
+  inv.accesses.forEach(d => L.push(`- ${d.hostname} (access${d.stack > 1 ? `, ${d.stack} üyeli stack` : ''}) · ${vendorName(d.vendor)} ${d.model} · ${d.mgmt}`));
   L.push('', 'VLANLAR', ...inv.vlans.map(v => `${v.id}\t${v.name}\tGateway ${isManagementVlan(v) ? managementAddress(1) : gatewayAddress(v.id, 1)}`), '', 'PORT PLANI');
-  inv.links.forEach(l => L.push(`${l.access.hostname} ${l.aPort} → ${l.core.hostname} ${l.cPort}`));
+  inv.links.forEach(l => L.push(`${l.access.hostname}${l.access.stack > 1 ? `(üye ${l.mem})` : ''} ${l.aPort} → ${l.core.hostname} ${l.cPort}${l.lag ? ` (LAG ${l.lag})` : ''}`));
+  inv.interLinks.forEach(il => L.push(`${il.x.hostname} ${il.xPort} → ${il.y.hostname} ${il.yPort} (LAG 200)`));
   L.push('', 'GÜVENLİK');
-  if (inv.cores[0]) L.push(inv.cores[1] ? `- ${inv.cores[0].hostname} STP root primary, ${inv.cores[1].hostname} root secondary.` : `- ${inv.cores[0].hostname} STP root primary.`);
+  if (inv.cores[0]) L.push(virt ? `- ${inv.cores[0].hostname} (mantıksal çift) STP root primary.` : inv.cores[1] ? `- ${inv.cores[0].hostname} STP root primary, ${inv.cores[1].hostname} root secondary.` : `- ${inv.cores[0].hostname} STP root primary.`);
   if (f.l2sec) L.push('- DHCP Snooping ve DAI kullanıcı VLANlarında etkin.', '- Yalnız uplink portları DHCP/ARP trusted.', '- Access portlarında IP Source Guard ve BPDU Guard etkin.');
   if (f.dot1x) L.push('- Access kullanıcı portlarında 802.1X + MAB, RADIUS CoA ve critical VLAN politikası var.');
   if (f.hardening) L.push('- Yönetim düzlemi hardening (SSH, AAA, ACL, NTP, syslog, SNMPv3) uygulandı.');
@@ -440,16 +703,25 @@ function campusConfig(vendor, side) {
   const inv = state.campusInv || campusInventory();
   const d = inv.devices.find(x => x.id === side);
   const full = vendor === 'cisco' ? campusCiscoDevice(d, inv) : campusGenericDevice(d, inv);
-  const f = inv.f;
+  const f = inv.f; const virt = inv.virt;
   const checks = ['1. VLAN ve trunk kapsamını doğrula.', '2. STP root primary/secondary ve blocked yedek yolu doğrula.', '3. Core gateway/first-hop redundancy durumunu doğrula.', `4. Her access switchten ${managementAddress(1)} management gateway ping testi yap.`];
   if (f.l2sec) checks.push('5. DHCP Snooping binding ve DAI drop sayaçlarını doğrula.', '6. Trusted portların yalnız uplinkler olduğunu doğrula.');
   if (f.hardening) checks.push('7. SSH, NTP, syslog ve SNMPv3 yönetim servislerini doğrula.');
   if (f.dot1x) checks.push('8. 802.1X, MAB ve RADIUS-down (critical VLAN) senaryolarını pilot portta test et.');
   if (f.dhcp) checks.push('9. İstemcilerin DHCP ile doğru VLAN adresini aldığını doğrula.');
   if (f.ospf || f.defaultRoute) checks.push('10. Upstream komşuluğu, OSPF rotaları ve varsayılan rotayı doğrula.');
+  if (virt) {
+    const cmd = { svl: 'show stackwise-virtual', vpc: 'show vpc brief / show vpc consistency-parameters global', vsx: 'show vsx status', mlag: 'display dfs-group 1 m-lag', css: 'display css status', istack: 'display stack' }[virt.kind];
+    checks.push(`11. Sanallaştırma durumunu doğrula (${cmd}).`, '12. Port-channel/LAG üyelerinin tüm şasilerde bundle olduğunu doğrula.');
+    if (virt.layered) checks.push('14. İki çift arasındaki çift taraflı LAG\'ın (4 bağlantı) bundle olduğunu ve her iki çiftte up olduğunu doğrula.');
+  }
+  if (!virt || virt.kind === 'vpc' || virt.kind === 'mlag') { if (inv.fhrp !== 'none') checks.push('15. Gateway rollerini (active/standby veya master/backup) doğrula (show standby brief / show vrrp brief / show glbp brief / display vrrp).'); }
+  if (inv.accesses.some(a => a.stack > 1)) checks.push('13. Stack üyelerini ve rollerini doğrula (show switch / show vsf / display stack).');
   const verify = [`${d.hostname} · ${d.role.toUpperCase()}`, '', ...checks].join('\n');
   return { delta: full, full, audit: campusReport(inv), verify, rollback: 'Yeni kurulumda rollback: startup-config yüklenmeden cihazı fabrika/önceki baseline durumuna döndür. Canlı sisteme uygulanacaksa her cihazın orijinal config snapshotını geri yükle.' };
 }
+
+
 
 function securityConfig(vendor, side) {
   const radius1 = ($('#radiusServers')?.value || '10.10.10.20, 10.10.10.21').split(',')[0].trim();
@@ -601,6 +873,7 @@ function analyzePlan() {
   }
   if (state.module === 'cabling') all.filter(x => !supports(x, 'vxlan')).forEach(x => notes.push(`${deviceLabel(x)} VXLAN EVPN desteklemiyor; fiziksel plan geçerli ama overlay config bu cihazda uygulanamaz.`));
   if (state.module === 'security') all.filter(x => !supports(x, 'dot1x')).forEach(x => notes.push(`${deviceLabel(x)} kullanıcı portu 802.1X/MAB için uygun bir profil değil; access sınıfı bir model seçin.`));
+  if (state.module !== 'campus') all.filter(x => x.vendor === 'cisco' && /^N\dK|^N9K|nexus/i.test(x.model)).forEach(x => notes.push(`${x.model}: bu modülde NX-OS yerine IOS-XE sözdizimi üretilir; NX-OS (vPC) yalnızca Campus Builder'da desteklenir.`));
   const fallbackCount = notes.length;
   if (state.module === 'campus') notes.push(...state.campusInv.notes);
   if (state.module === 'wan') {
@@ -789,18 +1062,27 @@ function renderCampusTopology() {
   if (state.solution !== 'campus') { renderFabricTopology(); return; }
   card.hidden = false;
   $('.subhead h3', card).textContent = 'Campus topolojisi'; $('.subhead p', card).textContent = 'Core, access, uplink ve VLAN kapsamı';
-  const inv = state.campusInv || campusInventory();
+  const inv = state.campusInv || campusInventory(); const virt = inv.virt; const layered = Boolean(virt && virt.layered);
   const nc = Math.max(1, inv.coreCount), na = Math.max(1, inv.accessCount);
-  const width = Math.max(960, 104 * Math.max(nc, na)), height = 380;
-  const coreW = Math.min(190, width / nc - 16), accW = Math.min(160, width / na - 8);
-  const cx = {}, ax = {};
-  inv.cores.forEach((c, i) => { cx[c.id] = width * (i + 1) / (nc + 1); });
-  inv.accesses.forEach((a, i) => { ax[a.id] = width * (i + 1) / (na + 1); });
-  const lines = inv.links.map(l => `<line class="link ${l.u > 0 ? 'secondary' : ''}" x1="${cx[l.core.id]}" y1="120" x2="${ax[l.access.id]}" y2="245"><title>${escHtml(l.access.hostname)} ${escHtml(l.aPort)} → ${escHtml(l.core.hostname)} ${escHtml(l.cPort)}</title></line>`).join('');
-  const cores = inv.cores.map(c => svgNode(cx[c.id], 87, coreW, 68, 'node node-core', [escHtml(c.hostname), escHtml(c.model), escHtml(ipOnly(c.mgmt))])).join('');
-  const access = inv.accesses.map(a => svgNode(ax[a.id], 279, accW, 68, 'node', [escHtml(a.hostname), escHtml(a.model), escHtml(ipOnly(a.mgmt))])).join('');
-  $('#topologyDiagram').innerHTML = `<svg viewBox="0 0 ${width} ${height}" aria-labelledby="topologyTitle"><title id="topologyTitle">${inv.coreCount} core ve ${inv.accessCount} access switch campus topolojisi</title>${lines}${cores}${access}<text class="node-meta" x="${width / 2}" y="352" text-anchor="middle">Düz çizgi: primary uplink · Kesikli çizgi: secondary uplink · Hover: port eşleşmesi</text></svg>`;
-  $('#topologySummary').textContent = `${inv.coreCount} CORE · ${inv.accessCount} ACCESS · ${inv.links.length} LINK`;
+  const width = Math.max(960, 104 * Math.max(layered ? 2 : nc, na)), height = layered ? 470 : 380;
+  const yCore = layered ? 70 : 87, yAgg = 205, yAcc = layered ? 392 : 279;
+  const coreW = Math.min(190, layered ? 200 : width / nc - 16), accW = Math.min(160, width / na - 8);
+  const pos = {};
+  if (layered) virt.pairs.forEach((p, i) => { const y = i === 0 ? yCore : yAgg; pos[p.a.id] = { x: width * 0.38, y }; pos[p.b.id] = { x: width * 0.62, y }; });
+  else inv.cores.forEach((c, i) => { pos[c.id] = { x: width * (i + 1) / (nc + 1), y: yCore }; });
+  inv.accesses.forEach((a, i) => { pos[a.id] = { x: width * (i + 1) / (na + 1), y: yAcc }; });
+  const count = {}; const lines = inv.links.map(l => {
+    const key = l.access.id + '|' + l.core.id; const k = count[key] = (count[key] || 0) + 1;
+    const off = (k - 1) * 7; const a = pos[l.core.id], b = pos[l.access.id];
+    return `<line class="link ${l.u > 0 ? 'secondary' : ''}" x1="${a.x + off}" y1="${a.y + 33}" x2="${b.x + off}" y2="${b.y - 34}"><title>${escHtml(l.access.hostname)} ${escHtml(l.aPort)} → ${escHtml(l.core.hostname)} ${escHtml(l.cPort)}${l.lag ? ` (LAG ${l.lag})` : ''}</title></line>`;
+  });
+  inv.interLinks.forEach(il => { const a = pos[il.x.id], b = pos[il.y.id]; lines.push(`<line class="link lag" x1="${a.x}" y1="${a.y + 34}" x2="${b.x}" y2="${b.y - 34}"><title>${escHtml(il.x.hostname)} ${escHtml(il.xPort)} → ${escHtml(il.y.hostname)} ${escHtml(il.yPort)} (LAG 200)</title></line>`); });
+  if (inv.interlink) { const a = pos[inv.interlink.a.id], b = pos[inv.interlink.b.id]; lines.push(`<line class="link lag" x1="${a.x + coreW / 2}" y1="${a.y}" x2="${b.x - coreW / 2}" y2="${b.y}"><title>INTER-CORE (Port-channel 255)</title></line>`); }
+  const boxes = virt ? virt.pairs.map((p, i) => { const a = pos[p.a.id], b = pos[p.b.id]; const x0 = Math.min(a.x, b.x) - coreW / 2 - 12, x1 = Math.max(a.x, b.x) + coreW / 2 + 12; return `<rect class="pair-box" x="${x0}" y="${a.y - 50}" width="${x1 - x0}" height="100" rx="14"/><text class="node-meta" x="${x0 + 10}" y="${a.y - 56}">${escHtml(VIRT_NAME[virt.kind])} · ${i + 1}${layered ? (i === 0 ? ' · core' : ' · aggregation') : ''}</text>`; }).join('') : '';
+  const cores = inv.cores.map(c => svgNode(pos[c.id].x, pos[c.id].y, coreW, 68, 'node node-core', [escHtml(c.hostname), escHtml(c.model), escHtml(ipOnly(c.mgmt))])).join('');
+  const access = inv.accesses.map(a => svgNode(pos[a.id].x, pos[a.id].y, accW, 68, 'node', [escHtml(a.hostname) + (a.stack > 1 ? ` ×${a.stack}` : ''), escHtml(a.model), escHtml(ipOnly(a.mgmt))])).join('');
+  $('#topologyDiagram').innerHTML = `<svg viewBox="0 0 ${width} ${height}" aria-labelledby="topologyTitle"><title id="topologyTitle">${inv.coreCount} core ve ${inv.accessCount} access switch campus topolojisi</title>${boxes}${lines.join('')}${cores}${access}<text class="node-meta" x="${width / 2}" y="${height - 28}" text-anchor="middle">Düz çizgi: primary uplink · Kesikli çizgi: secondary uplink · Hover: port eşleşmesi</text></svg>`;
+  $('#topologySummary').textContent = `${inv.coreCount} CORE · ${inv.accessCount} ACCESS · ${inv.links.length + inv.interLinks.length} LINK`;
   $('#topologyLegend').innerHTML = inv.vlans.map(v => `<span>VLAN ${v.id} · ${escHtml(v.name)}</span>`).join('');
 }
 
@@ -1158,7 +1440,7 @@ initCampusUi();
 const WAN_TYPE_NAME = { dmvpn: 'DMVPN Phase {0}', gre: 'GRE over IPsec', s2s: 'Site-to-site IPsec' };
 
 function wanFeatures(text) {
-  const t = (text || '').toLocaleLowerCase('tr-TR') + ' ' + (text || '').toLowerCase();
+  const t = (text || '').toLocaleLowerCase('tr-TR') + '\n' + (text || '').toLowerCase();
   const f = { type: null, overlay: null, phase: 3, cryptoMap: false, labels: [] };
   if (/dmvpn|nhrp|mgre|hub.?(?:and|ve)?.?spoke|hub-spoke/.test(t)) f.type = 'dmvpn';
   else if (/\bgre\b/.test(t)) f.type = 'gre';

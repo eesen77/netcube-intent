@@ -172,6 +172,9 @@
             <div class="campus-rows" id="campusRows"></div>
           </div>
           <label>Uplink yapısı<select id="campusRedundancy"><option value="dual">Her access iki core'a</option><option value="single">Tek core uplink</option></select></label>
+          <label>Gateway yedekliliği (FHRP)<select id="campusFhrp"><option value="auto">Otomatik</option><option value="hsrp">HSRP</option><option value="vrrp">VRRP</option><option value="glbp">GLBP</option><option value="none">Yok</option></select></label>
+          <label>Core sanallaştırma<select id="campusVirt"><option value="none">Yok</option><option value="on">VSS / VSX / vPC / M-LAG (üreticiye göre)</option></select></label>
+          <label>Access stack<select id="campusStack"><option value="0">Yok</option><option value="2">2 üyeli</option><option value="3">3 üyeli</option><option value="4">4 üyeli</option></select></label>
           <label>Gateway şablonu<input id="gatewayTemplate" value="10.{VLAN}.0.1/24"></label>
           <label>Management subnet<input id="campusMgmtSubnet" value="10.99.0.0/24"></label>
           <label class="campus-vlans">VLAN ID ve isimleri<textarea id="campusVlans" rows="3">10:USERS, 20:VOICE, 40:BILGI_ISLEM, 99:MANAGEMENT</textarea></label>
@@ -275,13 +278,13 @@
 
     <footer><span>NetCube Intent · güvenli ağ değişikliği prototipi</span><span>Plan üretir, uygulama yapmaz.</span></footer>
   </div>
-  <script src="devices.js?v=0.10.0"></script>
-  <script src="parser.js?v=0.10.0"></script>
-  <script src="fabric.js?v=0.10.0"></script>
-  <script src="audit.js?v=0.10.0"></script>
-  <script src="app.js?v=0.10.0"></script>
-  <script src="history.js?v=0.10.0"></script>
-  <script src="i18n-en.js?v=0.10.0"></script>
-  <script src="i18n.js?v=0.10.0"></script>
+  <script src="devices.js?v=0.11.0"></script>
+  <script src="parser.js?v=0.11.0"></script>
+  <script src="fabric.js?v=0.11.0"></script>
+  <script src="audit.js?v=0.11.0"></script>
+  <script src="app.js?v=0.11.0"></script>
+  <script src="history.js?v=0.11.0"></script>
+  <script src="i18n-en.js?v=0.11.0"></script>
+  <script src="i18n.js?v=0.11.0"></script>
 </body>
 </html>
