@@ -1089,3 +1089,9 @@ Object.assign(window.NETCUBE_EN, {
   "# rsa local-key-pair create komutunu etkileşimli çalıştırın ve 4096 bit seçin (komut onay ister)": "# Run the rsa local-key-pair create command interactively and choose 4096 bits (the command asks for confirmation)",
   "# Parola süresi (password expire) kurumsal politikanıza göre ayarlanmalıdır": "# Set the password expiry (password expire) according to your corporate policy"
 });
+Object.assign(window.NETCUBE_EN, {
+  "! TACACS+ erişilemezse yerel kullanıcı yedeği olmadan oturumu kapatmayın; önce yeni oturumda doğrulayın": "! Do not close your session without a local-user fallback if TACACS+ is unreachable; verify in a new session first",
+  "# TACACS+ erişilemezse yerel kullanıcı yedeği olmadan oturumu kapatmayın; önce yeni oturumda doğrulayın": "# Do not close your session without a local-user fallback if TACACS+ is unreachable; verify in a new session first",
+  "TACACS+ doğrulama:": "TACACS+ verification:",
+  "TACACS+ sunucuları RADIUS sunucu kutusundaki IP'lerde varsayıldı; gerçek adresleri ve anahtarı girin.": "The TACACS+ servers are assumed to use the IPs in the RADIUS servers box; enter the real addresses and key."
+});

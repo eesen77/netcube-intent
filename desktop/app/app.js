@@ -977,6 +977,10 @@ function analyzePlan() {
       outputs[i] = au ? { delta: AU.fixScript(au), verify: AU.verifyText(au), rollback: AU.rollbackText(au), audit: AU.report(lab, au) } : { delta: noCfg, verify: noCfg, rollback: noCfg, audit: noCfg };
     } else {
       outputs[i] = vendorConfigs(dev.vendor, protocol, i);
+      if (outputs[i] && protocol === 'security' && /tacacs/i.test(intent)) {
+        outputs[i] = { ...outputs[i], delta: appendTacacs(dev.vendor, outputs[i].delta), verify: outputs[i].verify + '\n\nTACACS+ doğrulama:\n' + tacacsVerify(dev.vendor).join('\n') };
+        if (i === ids[0]) notes.push('TACACS+ sunucuları RADIUS sunucu kutusundaki IP\'lerde varsayıldı; gerçek adresleri ve anahtarı girin.');
+      }
       if (outputs[i] && (protocol === 'hardening' || protocol === 'security')) {
         if (au) outputs[i] = { ...outputs[i], audit: AU.report(lab, au) };
         else if (protocol === 'security') outputs[i] = { ...outputs[i], audit: noCfg };
@@ -2019,7 +2023,15 @@ function appendTacacs(vendor, text) {
   arr.splice(at, 0, ...lines);
   let out = arr.join(String.fromCharCode(10));
   if (vendor === 'cisco') out = out.replace(/ login local/g, ' login authentication VTY_AUTH' + String.fromCharCode(10) + ' authorization exec VTY_AUTH' + String.fromCharCode(10) + ' authorization commands 15 VTY_AUTH');
+  // Yönetim hattı bağlaması yoksa ekle (ör. Secure Access çıktısı vty içermez)
+  const bind = vendor === 'cisco' && !/login authentication VTY_AUTH/.test(out) ? ['line vty 0 15', ' login authentication VTY_AUTH', ' authorization exec VTY_AUTH', ' authorization commands 15 VTY_AUTH', '! TACACS+ erişilemezse yerel kullanıcı yedeği olmadan oturumu kapatmayın; önce yeni oturumda doğrulayın']
+    : vendor === 'huawei' && !/user-interface vty/.test(out) ? ['user-interface vty 0 4', ' authentication-mode aaa', ' protocol inbound ssh', 'quit', '# TACACS+ erişilemezse yerel kullanıcı yedeği olmadan oturumu kapatmayın; önce yeni oturumda doğrulayın'] : [];
+  if (bind.length) out = insertBeforeEnd(out, bind);
   return out;
+}
+
+function tacacsVerify(vendor) {
+  return vendor === 'cisco' ? ['show tacacs', 'show aaa servers', 'show running-config | section aaa'] : vendor === 'aruba' ? ['show tacacs-server', 'show aaa authentication'] : ['display hwtacacs-server template TACACS_TPL', 'display domain name tacacs_dmn'];
 }
 
 function huaweiNacLines(radius) {
