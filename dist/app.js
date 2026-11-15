@@ -207,7 +207,9 @@ function hardeningConfig(vendor, side) {
     aruba:`! NETCUBE INTENT — ARUBA AOS-CX HARDENING BASELINE\nhostname ${hostname}\nno telnet-server\nssh server vrf default\nuser breakglass group administrators password ciphertext <LOCAL_SECRET_FROM_VAULT>\n!\nvlan ${vlan}\n name MANAGEMENT\ninterface vlan ${vlan}\n ip address ${mgmt}\n no shutdown\nip route 0.0.0.0/0 ${gateway}\n!\naccess-list ip MGMT_ACCESS\n 10 permit any ${admin.ip}/${inputValue('adminNetwork','10.10.10.0/24').split('/')[1]||24} any\n 20 deny any any log\n!\nspanning-tree\nspanning-tree bpdu-guard\n!\ndhcp-snooping\n!\nntp server ${ntps[0]} iburst prefer\nntp server ${ntps[1]||ntps[0]} iburst\nlogging ${syslog}\nlogging severity warning\n!\nsnmpv3 user <SNMPV3_USER> auth sha auth-pass plaintext <AUTH_FROM_VAULT> priv aes priv-pass plaintext <PRIV_FROM_VAULT>\n!\nbanner motd ^Unauthorized access is prohibited and logged.^`,
     huawei:`# NETCUBE INTENT — HUAWEI VRP HARDENING BASELINE\nsysname ${hostname}\nundo telnet server enable\nstelnet server enable\nssh server-source all-interface\nssh server authentication-type password\n#\naaa\n local-user breakglass password irreversible-cipher <LOCAL_SECRET_FROM_VAULT>\n local-user breakglass privilege level 15\n local-user breakglass service-type ssh\nquit\n#\nacl number 2000\n rule 5 permit source ${admin.ip} ${admin.wildcard}\n rule 100 deny\nquit\n#\nvlan ${vlan}\n description MANAGEMENT\nquit\ninterface Vlanif${vlan}\n ip address ${ipOnly(mgmt)} ${maskFor(mgmt)}\nquit\nip route-static 0.0.0.0 0.0.0.0 ${gateway}\n#\nstp enable\nstp bpdu-protection\ndhcp snooping enable\n#\nntp-service unicast-server ${ntps[0]} preferred\nntp-service unicast-server ${ntps[1]||ntps[0]}\ninfo-center loghost ${syslog}\n#\nsnmp-agent\nsnmp-agent sys-info version v3\nsnmp-agent group v3 NMS privacy read-view iso-view acl 2000\nsnmp-agent usm-user v3 <SNMPV3_USER> group NMS\n#\nuser-interface vty 0 4\n acl 2000 inbound\n authentication-mode aaa\n protocol inbound ssh\n idle-timeout 10 0\nquit\nheader login information ^Unauthorized access is prohibited and logged.^\nreturn`
   };
-  const full=configs[vendor];
+  let full=configs[vendor];
+  if (/tacacs/i.test(($('#intentInput') || {}).value || '')) full = appendTacacs(vendor, full);
+  if (vendor === 'huawei') full = insertBeforeEnd(full, huaweiHardExtras());
   return {
     delta: state.mode==='new'?full:`! CANLI SİSTEM DELTA ÖNERİSİ\n! Aşağıdaki hedef baseline, mevcut config ile satır/satır birleştirilmeden uygulanmamalıdır.\n\n${full}`,
     full,
@@ -301,6 +303,7 @@ function campusFeatures(text) {
   if (no(/hardening (yok|olmasın|istemiyorum)|without hardening|no hardening|hardening\W*(?:is )?not needed/)) f.hardening = false;
   if (no(/(snooping|dai|l2 güvenlik|layer 2 güvenlik|layer 2 security)\s*(yok|olmasın|istemiyorum)|without (dhcp )?snooping|no (dhcp )?snooping/)) f.l2sec = false;
   f.dot1x = no(/802\.1x|\bmab\b|radius|clearpass|cisco ise|\bnps\b|\bnac\b|dot1x|kimlik doğrulama|network access control/);
+  f.tacacs = no(/tacacs/);
   f.ospf = no(/ospf|dynamic routing|dinamik routing|dinamik yönlendirme/);
   f.dhcp = no(/dhcp\s*(server|sunucu|havuz|pool|hizmet)|dhcp (olsun|ver)|ip dağıt|address pool|dhcp pool/);
   const ipRe = /(\d{1,3}(?:\.\d{1,3}){3})(?!\/)/g; let mm;
@@ -330,7 +333,7 @@ function campusFeatures(text) {
   const c = (text || '').match(/(\d{1,2})\s*(?:adet\s*)?core/i), a = (text || '').match(/(\d{1,2})\s*(?:adet\s*)?access/i);
   if (c) f.cores = Math.max(1, Math.min(4, Number(c[1]))); if (a) f.accesses = Math.max(1, Math.min(24, Number(a[1])));
   const L = f.labels;
-  if (f.hardening) L.push('hardening'); if (f.l2sec) L.push('Layer 2 koruma'); if (f.dot1x) L.push('802.1X / MAB'); if (f.ospf) L.push('OSPF');
+  if (f.hardening) L.push('hardening'); if (f.l2sec) L.push('Layer 2 koruma'); if (f.dot1x) L.push('802.1X / MAB'); if (f.tacacs) L.push('TACACS+'); if (f.ospf) L.push('OSPF');
   if (f.defaultRoute) L.push('varsayılan rota'); if (f.dhcp) L.push('DHCP sunucusu'); if (f.redundancy) L.push(f.redundancy === 'single' ? 'tek uplink' : 'çift uplink');
   void vm;
   return f;
@@ -537,8 +540,8 @@ function campusCiscoDevice(d, inv) {
   const admin = adminAclParts(inputValue('adminNetwork', '10.10.10.0/24')); const radius = campusRadius();
   const base = ['ip domain-name corp.local', 'ip ssh version 2', 'spanning-tree mode rapid-pvst'];
   const hard = f.hardening ? ['service timestamps log datetime msec localtime show-timezone', 'service password-encryption', 'no ip http server', 'no ip http secure-server', 'username breakglass privilege 15 secret <LOCAL_SECRET_FROM_VAULT>', 'ip access-list standard MGMT_ACCESS', ` permit ${admin.ip} ${admin.wildcard}`, ' deny any log', 'ntp server 10.10.20.10 prefer', 'logging host 10.10.30.20', 'logging trap warnings', 'snmp-server group NMS v3 priv access MGMT_ACCESS', 'snmp-server user <SNMPV3_USER> NMS v3 auth sha <AUTH_FROM_VAULT> priv aes 256 <PRIV_FROM_VAULT>', 'line vty 0 15', ' access-class MGMT_ACCESS in', ' transport input ssh', ' login local', ' exec-timeout 10 0'] : ['line vty 0 15', ' transport input ssh', ' login local'];
-  const aaa = f.hardening || f.dot1x ? ['aaa new-model'] : [];
-  const common = [...base, ...(f.hardening ? ['spanning-tree portfast bpduguard default'] : []), ...aaa, ...hard].join('\n');
+  const aaa = f.hardening || f.dot1x || f.tacacs ? ['aaa new-model', ...(f.tacacs ? tacacsLines('cisco', radius) : [])] : [];
+  const common = (f.tacacs ? [...base, ...(f.hardening ? ['spanning-tree portfast bpduguard default'] : []), ...aaa, ...hard].join('\n').replace(' login local', ' login authentication VTY_AUTH\n authorization exec VTY_AUTH\n authorization commands 15 VTY_AUTH') : [...base, ...(f.hardening ? ['spanning-tree portfast bpduguard default'] : []), ...aaa, ...hard].join('\n'));
   const mine = campusLinksOf(inv, d);
   const trust = f.l2sec ? [' ip dhcp snooping trust', ' ip arp inspection trust'] : [];
   const trunk = (port, desc, lag) => [`interface ${port}`, ` description ${desc}`, ...(lag ? [` channel-group ${lag} mode active`, ' no shutdown'] : [' switchport mode trunk', ` switchport trunk allowed vlan ${vlanIds}`, ...trust, ' no shutdown'])].join('\n');
@@ -609,7 +612,8 @@ function campusGenericDevice(d, inv) {
   const vlanLines = [...inv.vlans.map(v => (aruba ? `vlan ${v.id}\n name ${v.name}` : `vlan ${v.id}\n description ${v.name}\nquit`)), aruba ? 'vlan 999' + String.fromCharCode(10) + ' name BLACKHOLE_NATIVE' : 'vlan 999' + String.fromCharCode(10) + ' description BLACKHOLE_NATIVE' + String.fromCharCode(10) + 'quit'].join(String.fromCharCode(10));
   const head = aruba
     ? [`hostname ${d.hostname}`, 'ssh server vrf default', 'spanning-tree', 'spanning-tree mode rpvst', ...(f.hardening ? ['no telnet server vrf default', 'no telnet server vrf mgmt', 'user breakglass group administrators password ciphertext <LOCAL_SECRET_FROM_VAULT>', 'ntp server 10.10.20.10 iburst prefer', 'logging 10.10.30.20', 'snmpv3 user <SNMPV3_USER> auth sha auth-pass plaintext <AUTH_FROM_VAULT> priv aes priv-pass plaintext <PRIV_FROM_VAULT>', 'snmp-server vrf default', 'no https-server vrf default', '! Yönetim erişimini yalnız ' + adminCidr + ' ağına kısıtlayın: control-plane ACL OSPF/VRRP/RADIUS trafiğini engellememeli; platform dokümanına göre elle tasarlayın'] : [])]
-    : [`sysname ${d.hostname}`, 'stelnet server enable', 'stp enable', 'stp mode rstp', ...(f.hardening ? ['undo telnet server enable', 'stp bpdu-protection', 'ntp-service unicast-server 10.10.20.10 preferred', 'info-center enable', 'info-center loghost 10.10.30.20', 'acl number 2000', ` rule 5 permit source ${adminAp.ip} ${adminAp.wildcard}`, ' rule 10 deny', 'quit', 'user-interface vty 0 4', ' acl 2000 inbound', ' authentication-mode aaa', ' protocol inbound ssh', ' idle-timeout 10 0', 'quit', 'aaa', ' local-user breakglass password irreversible-cipher <LOCAL_SECRET_FROM_VAULT>', ' local-user breakglass privilege level 15', ' local-user breakglass service-type ssh', 'quit', 'undo http server enable', 'undo http secure-server enable', 'snmp-agent sys-info version v3', 'snmp-agent group v3 NMS privacy', 'snmp-agent usm-user v3 <SNMPV3_USER> group NMS', 'snmp-agent usm-user v3 <SNMPV3_USER> authentication-mode sha cipher <AUTH_FROM_VAULT>', 'snmp-agent usm-user v3 <SNMPV3_USER> privacy-mode aes128 cipher <PRIV_FROM_VAULT>'] : [])];
+    : [`sysname ${d.hostname}`, 'stelnet server enable', 'stp enable', 'stp mode rstp', ...(f.hardening ? ['undo telnet server enable', 'stp bpdu-protection', 'ntp-service unicast-server 10.10.20.10 preferred', 'info-center enable', 'info-center loghost 10.10.30.20', 'acl number 2000', ` rule 5 permit source ${adminAp.ip} ${adminAp.wildcard}`, ' rule 10 deny', 'quit', 'user-interface vty 0 4', ' acl 2000 inbound', ' authentication-mode aaa', ' protocol inbound ssh', ' idle-timeout 10 0', 'quit', 'aaa', ' local-user breakglass password irreversible-cipher <LOCAL_SECRET_FROM_VAULT>', ' local-user breakglass privilege level 15', ' local-user breakglass service-type ssh', 'quit', 'undo http server enable', 'undo http secure-server enable', 'snmp-agent sys-info version v3', 'snmp-agent group v3 NMS privacy', 'snmp-agent usm-user v3 <SNMPV3_USER> group NMS', 'snmp-agent usm-user v3 <SNMPV3_USER> authentication-mode sha cipher <AUTH_FROM_VAULT>', 'snmp-agent usm-user v3 <SNMPV3_USER> privacy-mode aes128 cipher <PRIV_FROM_VAULT>', ...huaweiHardExtras()] : [])];
+  if (f.tacacs) head.push(...tacacsLines(aruba ? 'aruba' : 'huawei', radius));
   const snoop = !f.l2sec ? [] : aruba
     ? ['dhcpv4-snooping', ...protectedIds.map(id => `vlan ${id}\n dhcpv4-snooping`), `arp inspection vlan ${protectedIds.join(',')}`]
     : ['dhcp enable', 'dhcp snooping enable', ...protectedIds.map(id => `vlan ${id}\n dhcp snooping enable\nquit`), 'arp anti-attack check user-bind enable'];
@@ -674,7 +678,7 @@ function campusGenericDevice(d, inv) {
     if (f.dot1x) {
       body.push(aruba
         ? [...radius.map(ip => `radius-server host ${ip} key plaintext <RADIUS_SECRET>`), 'radius dyn-authorization enable', `radius dyn-authorization client ${radius[0] || '<RADIUS_IP>'} secret-key plaintext <COA_KEY>`, 'port-access role CRITICAL', ' vlan access <CRITICAL_VLAN>', '! 802.1X ayrıntıları (reauth, critical role) AOS-CX sürümüne göre doğrulanmalı', 'aaa authentication port-access dot1x authenticator', ' enable', ' reauth', ' reauth-period 28800', 'aaa authentication port-access mac-auth', ' enable'].join('\n')
-        : ['radius-server template NAC', ' radius-server shared-key cipher <RADIUS_SECRET>', ...radius.map(ip => ` radius-server authentication ${ip} 1812`), 'quit', `radius-server authorization ${radius[0] || '<RADIUS_IP>'} shared-key cipher <COA_KEY>`, 'aaa', ' authentication-scheme NAC', '  authentication-mode radius', ' quit', 'quit', 'dot1x enable', 'dot1x-access-profile name DOT1X', 'mac-access-profile name MAB', 'authentication-profile name CAMPUS_DOT1X', ' dot1x-access-profile DOT1X', ' mac-access-profile MAB', ' authentication event authen-server-down action authorize vlan <CRITICAL_VLAN>', 'quit'].join('\n'));
+        : huaweiNacLines(radius).join('\n'));
     }
     body.push(aruba
       ? [`interface vlan ${mg.id}`, ' description MANAGEMENT', ` ip address ${d.mgmt}`, `ip route 0.0.0.0/0 ${gw}`].join('\n')
@@ -682,7 +686,7 @@ function campusGenericDevice(d, inv) {
     d.members.forEach((_, i) => { const mi = i + 1;
       body.push(aruba
         ? [`interface ${mi}/1/1-${mi}/1/${n - 4}`, ' description USER_PORTS', ' no shutdown', ' no routing', ` vlan access ${userVlan}`, ' spanning-tree port-type admin-edge', ...(f.hardening || f.l2sec ? [' spanning-tree bpdu-guard'] : []), ...(f.l2sec ? [' ip source-lockdown'] : []), ...(f.dot1x ? [' aaa authentication port-access dot1x authenticator', '  enable', '  reauth', ' aaa authentication port-access mac-auth', '  enable', ' aaa authentication port-access critical-role CRITICAL'] : []), `interface ${mi}/1/${n - 3}-${mi}/1/${n}`, ' description UNUSED_SHUTDOWN', ' shutdown'].join('\n')
-        : [`port-group name USER_PORTS_${mi}`, ` group-member GigabitEthernet${mi - 1}/0/1 to GigabitEthernet${mi - 1}/0/${n - 4}`, ' port link-type access', ` port default vlan ${userVlan}`, ' stp edged-port enable', ...(f.l2sec ? [' ip source check user-bind enable'] : []), ...(f.dot1x ? [' authentication-profile CAMPUS_DOT1X'] : []), 'quit', `port-group name UNUSED_PORTS_${mi}`, ` group-member GigabitEthernet${mi - 1}/0/${n - 3} to GigabitEthernet${mi - 1}/0/${n}`, ' description UNUSED_SHUTDOWN', ' shutdown', 'quit'].join('\n')); });
+        : [`port-group name USER_PORTS_${mi}`, ` group-member GigabitEthernet${mi - 1}/0/1 to GigabitEthernet${mi - 1}/0/${n - 4}`, ' port link-type access', ` port default vlan ${userVlan}`, ' stp edged-port enable', ...(f.l2sec ? [' ip source check user-bind enable'] : []), ...(f.dot1x ? [' authentication-profile NAC_AUTH_PROF'] : []), 'quit', `port-group name UNUSED_PORTS_${mi}`, ` group-member GigabitEthernet${mi - 1}/0/${n - 3} to GigabitEthernet${mi - 1}/0/${n}`, ' description UNUSED_SHUTDOWN', ' shutdown', 'quit'].join('\n')); });
     if (virt) { [...new Set(mine.map(l => l.lag))].forEach(lag => { body.push(lagBlock(lag, false)); mine.filter(l => l.lag === lag).forEach(l => body.push(trunk(l.aPort, `MEC${lag}-${l.core.hostname}-${l.cPort}`, lag))); }); }
     else mine.forEach(l => body.push(trunk(l.aPort, `TO-${l.core.hostname}-${l.cPort}`)));
   }
@@ -754,7 +758,7 @@ function securityConfig(vendor, side) {
       rollback: `configure terminal\ninterface 1/1/5\n no aaa authentication port-access dot1x authenticator\n no aaa authentication port-access mac-auth`
     },
     huawei: {
-      delta: `system-view\nradius-server template NAC\n radius-server shared-key cipher <RADIUS_SECRET_FROM_VAULT>\n radius-server authentication ${radius1} 1812\n radius-server accounting ${radius1} 1813\n radius-server authentication ${radius2} 1812 secondary\nquit\ndot1x enable\ninterface GigabitEthernet0/0/5\n dot1x enable\n dot1x mac-bypass\n stp edged-port enable\n stp bpdu-protection\nquit\nreturn`,
+      delta: ['system-view', ...huaweiNacLines([radius1, radius2].filter(Boolean)), 'interface GigabitEthernet0/0/5', ' authentication-profile NAC_AUTH_PROF', ' stp edged-port enable', ' stp bpdu-protection', 'quit', 'return'].join('\n'),
       verify: `display radius-server configuration\ndisplay dot1x interface GigabitEthernet0/0/5\ndisplay access-user interface GigabitEthernet0/0/5`,
       rollback: `system-view\ninterface GigabitEthernet0/0/5\n undo dot1x mac-bypass\n undo dot1x enable\nquit\nreturn`
     }
@@ -1987,3 +1991,66 @@ $('#diffToggle').addEventListener('click', e => { const b = e.target.closest('bu
   };
   tick(); setInterval(tick, 1000);
 })();
+
+// ---------- TACACS+ ve Huawei NAC (802.1X / MAB) blokları ----------
+function tacacsLines(vendor, ips) {
+  ips = (ips && ips.length ? ips : ['<TACACS_IP>']).slice(0, 2);
+  if (vendor === 'cisco') return [...ips.flatMap((ip, i) => ['tacacs server TAC-' + (i + 1), ' address ipv4 ' + ip, ' key <TACACS_KEY>', ' timeout 5']),
+    'aaa group server tacacs+ TACACS_GRP', ...ips.map((ip, i) => ' server name TAC-' + (i + 1)),
+    'aaa authentication login VTY_AUTH group TACACS_GRP local', 'aaa authorization exec VTY_AUTH group TACACS_GRP local if-authenticated', 'aaa authorization commands 15 VTY_AUTH group TACACS_GRP local if-authenticated',
+    'aaa accounting exec default start-stop group TACACS_GRP', 'aaa accounting commands 15 default start-stop group TACACS_GRP',
+    '! TACACS+ sunucuları RADIUS ile aynı IP\'lerde varsayıldı; gerçek adresleri ve anahtarı girin. Yerel breakglass kullanıcısı yedek olarak kalır'];
+  if (vendor === 'aruba') return [...ips.map(ip => 'tacacs-server host ' + ip + ' key plaintext <TACACS_KEY>'), 'aaa group server tacacs TACACS_GRP', ...ips.map(ip => ' server ' + ip),
+    'aaa authentication login ssh group TACACS_GRP local', 'aaa accounting all-mgmt channel ssh start-stop group TACACS_GRP',
+    '! TACACS+ komutları AOS-CX sürümüne göre doğrulanmalıdır; sunucular RADIUS ile aynı IP\'lerde varsayıldı'];
+  return ['hwtacacs-server template TACACS_TPL', ' undo hwtacacs-server user-name domain-included', ' hwtacacs-server authentication ' + ips[0], ...(ips[1] ? [' hwtacacs-server authentication ' + ips[1] + ' secondary'] : []),
+    ' hwtacacs-server authorization ' + ips[0], ...(ips[1] ? [' hwtacacs-server authorization ' + ips[1] + ' secondary'] : []),
+    ' hwtacacs-server accounting ' + ips[0], ...(ips[1] ? [' hwtacacs-server accounting ' + ips[1] + ' secondary'] : []), ' hwtacacs-server shared-key cipher <TACACS_KEY>', 'quit',
+    'aaa', ' authentication-scheme TACACS_AUTH', '  authentication-mode hwtacacs local', ' authorization-scheme TACACS_AUTHZ', '  authorization-mode hwtacacs local', '  authorization-cmd 0 hwtacacs',
+    ' accounting-scheme TACACS_ACC', '  accounting-mode hwtacacs', ' recording-scheme TACACS_REC', '  recording-mode hwtacacs TACACS_TPL',
+    ' domain tacacs_dmn', '  authentication-scheme TACACS_AUTH', '  accounting-scheme TACACS_ACC', '  authorization-scheme TACACS_AUTHZ', '  hwtacacs-server TACACS_TPL', ' cmd recording-scheme TACACS_REC', 'quit',
+    'domain tacacs_dmn admin', '# TACACS+ (hwtacacs) komutları model ve sürüme göre doğrulanmalıdır; sunucular RADIUS ile aynı IP\'lerde varsayıldı; yerel breakglass kullanıcısı yedek olarak kalır'];
+}
+
+function appendTacacs(vendor, text) {
+  const lines = tacacsLines(vendor, campusRadius()); const arr = String(text).split(String.fromCharCode(10));
+  let t = arr.length; while (t > 0 && !arr[t - 1].trim()) t--;
+  const at = t > 0 && /^(end|return)$/i.test(arr[t - 1].trim()) ? t - 1 : t;
+  arr.splice(at, 0, ...lines);
+  let out = arr.join(String.fromCharCode(10));
+  if (vendor === 'cisco') out = out.replace(/ login local/g, ' login authentication VTY_AUTH' + String.fromCharCode(10) + ' authorization exec VTY_AUTH' + String.fromCharCode(10) + ' authorization commands 15 VTY_AUTH');
+  return out;
+}
+
+function huaweiNacLines(radius) {
+  radius = (radius && radius.length ? radius : ['<RADIUS_IP>']).slice(0, 2); const dom = 'NAC_DOMAIN';
+  return ['radius-server template NAC', ' radius-server shared-key cipher <RADIUS_SECRET>', ...radius.map(ip => ' radius-server authentication ' + ip + ' 1812 weight 80'), ...radius.map(ip => ' radius-server accounting ' + ip + ' 1813 weight 80'),
+    ' undo radius-server user-name domain-included', ' radius-server detect-server up-server interval 300', ' calling-station-id mac-format hyphen-split mode2 uppercase', ' radius-attribute set Service-Type 10 auth-type mac', 'quit',
+    ...radius.map(ip => 'radius-server authorization ' + ip + ' shared-key cipher <COA_KEY>'), 'radius-server authorization match-type all',
+    'aaa', ' authentication-scheme NAC_AUTH', '  authentication-mode radius', ' accounting-scheme NAC_ACCT', '  accounting-mode radius', '  accounting realtime 3',
+    ' service-scheme NAC_GUEST_SRV', '  user-vlan <GUEST_VLAN>', ' service-scheme NAC_DOWN_SRV', '  user-vlan <CRITICAL_VLAN>', ' service-scheme NAC_PRE_SRV', '  user-vlan <PREAUTH_VLAN>',
+    ' domain ' + dom, '  authentication-scheme NAC_AUTH', '  accounting-scheme NAC_ACCT', '  radius-server NAC', 'quit',
+    'dot1x enable', 'dot1x timer tx-period 10', 'authentication mac-move enable vlan all',
+    'dot1x-access-profile name NAC_DOT1X', ' authentication event client-no-response action authorize service-scheme NAC_GUEST_SRV', ' dot1x timer reauthenticate-period 28800', ' dot1x reauthenticate', 'quit',
+    'mac-access-profile name NAC_MAB', 'quit',
+    'authentication-profile name NAC_AUTH_PROF', ' dot1x-access-profile NAC_DOT1X', ' mac-access-profile NAC_MAB', ' access-domain ' + dom + ' dot1x force', ' access-domain ' + dom + ' mac-authen force',
+    ' authentication event authen-fail action authorize service-scheme NAC_GUEST_SRV', ' authentication event authen-server-down action authorize service-scheme NAC_DOWN_SRV', ' authentication event authen-server-up action re-authen',
+    ' authentication event pre-authen action authorize service-scheme NAC_PRE_SRV', ' authentication order mac dot1x', ' authentication ip-address in-accounting-start', 'quit',
+    '# 802.1X ayrıntıları (domain, service-scheme, event, VLAN\'lar) model ve sürüme göre doğrulanmalıdır; ISE kullanıyorsanız redirect ACL\'i ve authentication redirect-acl ayrıca tanımlanmalıdır'];
+}
+
+// ---------- Huawei hardening ekleri (gerçek bir üretim şablonundan uyarlanmıştır) ----------
+function insertBeforeEnd(text, lines) {
+  const arr = String(text).split(String.fromCharCode(10)); let t = arr.length; while (t > 0 && !arr[t - 1].trim()) t--;
+  const at = t > 0 && /^(end|return)$/i.test(arr[t - 1].trim()) ? t - 1 : t;
+  arr.splice(at, 0, ...lines); return arr.join(String.fromCharCode(10));
+}
+
+function huaweiHardExtras() {
+  return ['ssh server publickey rsa rsa_sha2_256 rsa_sha2_512', 'ssh client publickey rsa rsa_sha2_256 rsa_sha2_512', 'ssh server rsa-key min-length 3072',
+    '# rsa local-key-pair create komutunu etkileşimli çalıştırın ve 4096 bit seçin (komut onay ister)',
+    'undo ftp server source all-interface', 'undo ftp ipv6 server source all-interface', 'stp tc-protection',
+    'aaa', ' local-aaa-user password policy administrator', '  password history record number 5', '  undo password alert original', 'quit',
+    '# Parola süresi (password expire) kurumsal politikanıza göre ayarlanmalıdır',
+    'header login information "Unauthorized access is prohibited. All activity may be logged and may lead to legal action."'];
+}

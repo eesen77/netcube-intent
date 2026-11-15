@@ -1079,3 +1079,13 @@ Object.assign(window.NETCUBE_EN, {
   "Niyette VPN türü (DMVPN / IPsec / GRE) yok; {0} varsayıldı. Yalnız routing veya VXLAN istiyorsan Routing & Overlay modülünü seç.": "The intent does not name a VPN type (DMVPN / IPsec / GRE); {0} was assumed. If you only want routing or VXLAN, pick the Routing & Overlay module.",
   "Varsayılan {0} {1} tarafından desteklenmiyor; {2} önerildi.": "The default {0} is not supported by {1}; {2} was suggested."
 });
+Object.assign(window.NETCUBE_EN, {
+  "! TACACS+ sunucuları RADIUS ile aynı IP'lerde varsayıldı; gerçek adresleri ve anahtarı girin. Yerel breakglass kullanıcısı yedek olarak kalır": "! The TACACS+ servers are assumed to share the RADIUS IPs; enter the real addresses and key. The local breakglass user stays as a fallback",
+  "! TACACS+ komutları AOS-CX sürümüne göre doğrulanmalıdır; sunucular RADIUS ile aynı IP'lerde varsayıldı": "! Verify the TACACS+ commands against your AOS-CX version; the servers are assumed to share the RADIUS IPs",
+  "# TACACS+ (hwtacacs) komutları model ve sürüme göre doğrulanmalıdır; sunucular RADIUS ile aynı IP'lerde varsayıldı; yerel breakglass kullanıcısı yedek olarak kalır": "# Verify the TACACS+ (hwtacacs) commands against your model and version; the servers are assumed to share the RADIUS IPs; the local breakglass user stays as a fallback",
+  "# 802.1X ayrıntıları (domain, service-scheme, event, VLAN'lar) model ve sürüme göre doğrulanmalıdır; ISE kullanıyorsanız redirect ACL'i ve authentication redirect-acl ayrıca tanımlanmalıdır": "# Verify the 802.1X details (domain, service-scheme, event, VLANs) against your model and version; if you use ISE, define the redirect ACL and authentication redirect-acl separately"
+});
+Object.assign(window.NETCUBE_EN, {
+  "# rsa local-key-pair create komutunu etkileşimli çalıştırın ve 4096 bit seçin (komut onay ister)": "# Run the rsa local-key-pair create command interactively and choose 4096 bits (the command asks for confirmation)",
+  "# Parola süresi (password expire) kurumsal politikanıza göre ayarlanmalıdır": "# Set the password expiry (password expire) according to your corporate policy"
+});
