@@ -276,3 +276,27 @@ body.dark .sev-ok { background: #1f3a29; color: #9fe0b5; }
 /* Campus: sanallaştırma çiftleri ve LAG */
 .topology-diagram .pair-box { fill: none; stroke: var(--accent-dark); stroke-width: 1.5; stroke-dasharray: 6 5; opacity: .8; }
 .topology-diagram .link.lag { stroke-width: 3.5; opacity: .7; }
+
+.code-actions { display: inline-flex; gap: 8px; }
+
+#codeOutput .diff-add { display: inline-block; width: 100%; background: rgba(46, 160, 67, .22); color: #aef0b6; }
+#codeOutput .diff-del { display: inline-block; width: 100%; background: rgba(248, 81, 73, .22); color: #ffb3ad; }
+
+.standards { margin: 14px 0 0; border: 1px solid var(--line, #d9ddd5); border-radius: 12px; padding: 10px 14px; background: rgba(255,255,255,.5); }
+.standards summary { cursor: pointer; font-weight: 700; }
+.standards summary small { font-weight: 400; color: #6b766f; margin-left: 8px; }
+.standards-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-top: 12px; }
+.standards-grid label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; }
+.standards-grid textarea, .standards-grid input:not([type=checkbox]) { font: inherit; font-weight: 400; padding: 8px 10px; border: 1px solid #cfd4cc; border-radius: 8px; background: #fff; }
+.standards-grid .check-line { flex-direction: row; align-items: center; gap: 8px; }
+.standards-grid .hint-line { font-weight: 400; color: #6b766f; font-size: 12px; }
+
+/* Onay kutuları global input kuralından etkilenmesin */
+input[type="checkbox"], input[type="radio"] { width: auto; display: inline-block; margin: 0; padding: 0; flex: none; }
+/* Config denetimi paneli: profiller tek satırda, alanlar dört sütunda */
+.audit-context { grid-template-columns: repeat(4, 1fr); align-items: start; }
+.audit-context > div:first-child { grid-column: 1 / -1; }
+.audit-context .audit-profiles { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px 22px; }
+.audit-context .audit-profiles label { white-space: nowrap; }
+@media (max-width: 900px) { .audit-context { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 560px) { .audit-context { grid-template-columns: 1fr; } }

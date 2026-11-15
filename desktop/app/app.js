@@ -23,6 +23,7 @@ const examples = [
 let exampleIndex = 0;
 
 const $ = (s, root = document) => root.querySelector(s);
+function autoHost(role, n, def) { return window.NETCUBE_CM ? window.NETCUBE_CM.host(role, n, def) : def; }
 const $$ = (s, root = document) => [...root.querySelectorAll(s)];
 
 const CATALOG = window.NETCUBE_DEVICES || [];
@@ -108,6 +109,7 @@ function setModule(module) {
   $('.device-grid').hidden = module === 'campus' || module === 'wan';
   $$('.device-card').forEach(c => { c.hidden = module === 'hardening' && c.dataset.device !== 'a'; });
   const actions = $('#deviceActions'); if (actions) actions.hidden = !['routing', 'cabling', 'security', 'audit'].includes(module);
+  const spineHint = $('#spineHint'); if (spineHint) spineHint.hidden = !['routing', 'cabling'].includes(module);
   const navVisible = { hardening: ['full', 'audit'], campus: ['full', 'audit'], audit: ['audit'], security: ['audit'], wan: ['audit'] }[module] || [];
   $$('.hardening-only').forEach(x => { x.hidden = !navVisible.includes(x.dataset.panel); });
   const auditBtn = $('.hardening-only[data-panel="audit"]'); if (auditBtn) auditBtn.textContent = ['audit', 'security'].includes(module) ? 'Denetim raporu' : 'Hardening raporu';
@@ -366,7 +368,7 @@ function campusInventory() {
     const role = r.role;
     const model = (r.model === CUSTOM_MODEL ? (r.custom || '').trim() : r.model) || (catalogFor(r.vendor)[0] || {}).model || (role === 'core' ? 'Core' : 'Access');
     const hostTyped = (r.hostname || '').trim().replace(/\s+/g, '-');
-    const hostname = hostTyped || `${role === 'core' ? 'CORE' : 'ACCESS'}-${String(idx + 1).padStart(2, '0')}`;
+    const hostname = hostTyped || autoHost(role, idx + 1, `${role === 'core' ? 'CORE' : 'ACCESS'}-${String(idx + 1).padStart(2, '0')}`);
     let mgmt = managementAddress(role === 'core' ? idx + 2 : 20 + idx); let mgmtTyped = false;
     const typed = (r.mgmt || '').trim();
     if (typed) { const ip = typed.split('/')[0]; if (campusIsIp(ip)) { mgmt = `${ip}/${managementAddress(1).split('/')[1] || '24'}`; mgmtTyped = true; } else notes.push(`${hostname}: yönetim IP '${typed}' geçersiz; otomatik adres kullanıldı.`); }
@@ -414,7 +416,7 @@ function campusInventory() {
       else while (j < accPhys.length && members.length < stackN && accPhys[j].vendor === first.vendor && accPhys[j].model === first.model) { members.push(accPhys[j]); j++; }
     }
     const li = logical.length; const L = { ...first, members, stack: members.length, idx: li };
-    if (!first.hostTyped) L.hostname = `ACCESS-${String(li + 1).padStart(2, '0')}`;
+    if (!first.hostTyped) L.hostname = autoHost('access', li + 1, `ACCESS-${String(li + 1).padStart(2, '0')}`);
     if (!first.mgmtTyped) L.mgmt = managementAddress(20 + li);
     logical.push(L); ai = members.length > 1 ? j : ai + 1;
   }
@@ -589,11 +591,12 @@ function campusGenericDevice(d, inv) {
   const f = inv.f; const aruba = d.vendor === 'aruba', cm = aruba ? '!' : '#', label = aruba ? 'AOS-CX' : 'VRP';
   const vlanIds = inv.vlans.map(v => v.id);
   const protectedIds = inv.vlans.filter(v => !isManagementVlan(v)).map(v => v.id);
+  const adminCidr = inputValue('adminNetwork', '10.10.10.0/24'); const adminAp = adminAclParts(adminCidr);
   const radius = campusRadius(); const mine = campusLinksOf(inv, d); const virt = inv.virt;
-  const vlanLines = inv.vlans.map(v => (aruba ? `vlan ${v.id}\n name ${v.name}` : `vlan ${v.id}\n description ${v.name}\nquit`)).join('\n');
+  const vlanLines = [...inv.vlans.map(v => (aruba ? `vlan ${v.id}\n name ${v.name}` : `vlan ${v.id}\n description ${v.name}\nquit`)), aruba ? 'vlan 999' + String.fromCharCode(10) + ' name BLACKHOLE_NATIVE' : 'vlan 999' + String.fromCharCode(10) + ' description BLACKHOLE_NATIVE' + String.fromCharCode(10) + 'quit'].join(String.fromCharCode(10));
   const head = aruba
-    ? [`hostname ${d.hostname}`, 'ssh server vrf default', 'spanning-tree', 'spanning-tree mode rpvst', ...(f.hardening ? ['no telnet server vrf default', 'no telnet server vrf mgmt', 'user breakglass group administrators password ciphertext <LOCAL_SECRET_FROM_VAULT>', 'ntp server 10.10.20.10 iburst prefer', 'logging 10.10.30.20'] : [])]
-    : [`sysname ${d.hostname}`, 'stelnet server enable', 'stp enable', 'stp mode rstp', ...(f.hardening ? ['undo telnet server enable', 'stp bpdu-protection', 'ntp-service unicast-server 10.10.20.10 preferred', 'info-center enable', 'info-center loghost 10.10.30.20'] : [])];
+    ? [`hostname ${d.hostname}`, 'ssh server vrf default', 'spanning-tree', 'spanning-tree mode rpvst', ...(f.hardening ? ['no telnet server vrf default', 'no telnet server vrf mgmt', 'user breakglass group administrators password ciphertext <LOCAL_SECRET_FROM_VAULT>', 'ntp server 10.10.20.10 iburst prefer', 'logging 10.10.30.20', 'snmpv3 user <SNMPV3_USER> auth sha auth-pass plaintext <AUTH_FROM_VAULT> priv aes priv-pass plaintext <PRIV_FROM_VAULT>', 'snmp-server vrf default', 'no https-server vrf default', '! Yönetim erişimini yalnız ' + adminCidr + ' ağına kısıtlayın: control-plane ACL OSPF/VRRP/RADIUS trafiğini engellememeli; platform dokümanına göre elle tasarlayın'] : [])]
+    : [`sysname ${d.hostname}`, 'stelnet server enable', 'stp enable', 'stp mode rstp', ...(f.hardening ? ['undo telnet server enable', 'stp bpdu-protection', 'ntp-service unicast-server 10.10.20.10 preferred', 'info-center enable', 'info-center loghost 10.10.30.20', 'acl number 2000', ` rule 5 permit source ${adminAp.ip} ${adminAp.wildcard}`, ' rule 10 deny', 'quit', 'user-interface vty 0 4', ' acl 2000 inbound', ' authentication-mode aaa', ' protocol inbound ssh', ' idle-timeout 10 0', 'quit', 'aaa', ' local-user breakglass password irreversible-cipher <LOCAL_SECRET_FROM_VAULT>', ' local-user breakglass privilege level 15', ' local-user breakglass service-type ssh', 'quit', 'undo http server enable', 'undo http secure-server enable', 'snmp-agent sys-info version v3', 'snmp-agent group v3 NMS privacy', 'snmp-agent usm-user v3 <SNMPV3_USER> group NMS', 'snmp-agent usm-user v3 <SNMPV3_USER> authentication-mode sha cipher <AUTH_FROM_VAULT>', 'snmp-agent usm-user v3 <SNMPV3_USER> privacy-mode aes128 cipher <PRIV_FROM_VAULT>'] : [])];
   const snoop = !f.l2sec ? [] : aruba
     ? ['dhcpv4-snooping', ...protectedIds.map(id => `vlan ${id}\n dhcpv4-snooping`), `arp inspection vlan ${protectedIds.join(',')}`]
     : ['dhcp enable', 'dhcp snooping enable', ...protectedIds.map(id => `vlan ${id}\n dhcp snooping enable\nquit`), 'arp anti-attack check user-bind enable'];
@@ -657,7 +660,7 @@ function campusGenericDevice(d, inv) {
       : ['# iStack: stack-port bağlantıları ve üye numaralarını doğrulayın', ...d.members.flatMap((m, i) => [`stack slot ${i} priority ${200 - 10 * i}`, `stack slot ${i} renumber ${i}`])].join('\n'));
     if (f.dot1x) {
       body.push(aruba
-        ? [...radius.map(ip => `radius-server host ${ip} key plaintext <RADIUS_SECRET>`), 'radius dyn-authorization enable', `radius dyn-authorization client ${radius[0] || '<RADIUS_IP>'} secret-key plaintext <COA_KEY>`, 'aaa authentication port-access dot1x authenticator', ' enable', 'aaa authentication port-access mac-auth', ' enable'].join('\n')
+        ? [...radius.map(ip => `radius-server host ${ip} key plaintext <RADIUS_SECRET>`), 'radius dyn-authorization enable', `radius dyn-authorization client ${radius[0] || '<RADIUS_IP>'} secret-key plaintext <COA_KEY>`, 'port-access role CRITICAL', ' vlan access <CRITICAL_VLAN>', '! 802.1X ayrıntıları (reauth, critical role) AOS-CX sürümüne göre doğrulanmalı', 'aaa authentication port-access dot1x authenticator', ' enable', ' reauth', ' reauth-period 28800', 'aaa authentication port-access mac-auth', ' enable'].join('\n')
         : ['radius-server template NAC', ' radius-server shared-key cipher <RADIUS_SECRET>', ...radius.map(ip => ` radius-server authentication ${ip} 1812`), 'quit', `radius-server authorization ${radius[0] || '<RADIUS_IP>'} shared-key cipher <COA_KEY>`, 'aaa', ' authentication-scheme NAC', '  authentication-mode radius', ' quit', 'quit', 'dot1x enable', 'dot1x-access-profile name DOT1X', 'mac-access-profile name MAB', 'authentication-profile name CAMPUS_DOT1X', ' dot1x-access-profile DOT1X', ' mac-access-profile MAB', ' authentication event authen-server-down action authorize vlan <CRITICAL_VLAN>', 'quit'].join('\n'));
     }
     body.push(aruba
@@ -665,7 +668,7 @@ function campusGenericDevice(d, inv) {
       : [`interface Vlanif${mg.id}`, ' description MANAGEMENT', ` ip address ${ipOnly(d.mgmt)} ${netInfo(d.mgmt).mask}`, 'quit', `ip route-static 0.0.0.0 0.0.0.0 ${gw}`].join('\n'));
     d.members.forEach((_, i) => { const mi = i + 1;
       body.push(aruba
-        ? [`interface ${mi}/1/1-${mi}/1/${n - 4}`, ' description USER_PORTS', ' no shutdown', ' no routing', ` vlan access ${userVlan}`, ' spanning-tree port-type admin-edge', ...(f.hardening || f.l2sec ? [' spanning-tree bpdu-guard'] : []), ...(f.l2sec ? [' ip source-lockdown'] : []), ...(f.dot1x ? [' aaa authentication port-access dot1x authenticator', '  enable', ' aaa authentication port-access mac-auth', '  enable'] : []), `interface ${mi}/1/${n - 3}-${mi}/1/${n}`, ' description UNUSED_SHUTDOWN', ' shutdown'].join('\n')
+        ? [`interface ${mi}/1/1-${mi}/1/${n - 4}`, ' description USER_PORTS', ' no shutdown', ' no routing', ` vlan access ${userVlan}`, ' spanning-tree port-type admin-edge', ...(f.hardening || f.l2sec ? [' spanning-tree bpdu-guard'] : []), ...(f.l2sec ? [' ip source-lockdown'] : []), ...(f.dot1x ? [' aaa authentication port-access dot1x authenticator', '  enable', '  reauth', ' aaa authentication port-access mac-auth', '  enable', ' aaa authentication port-access critical-role CRITICAL'] : []), `interface ${mi}/1/${n - 3}-${mi}/1/${n}`, ' description UNUSED_SHUTDOWN', ' shutdown'].join('\n')
         : [`port-group name USER_PORTS_${mi}`, ` group-member GigabitEthernet${mi - 1}/0/1 to GigabitEthernet${mi - 1}/0/${n - 4}`, ' port link-type access', ` port default vlan ${userVlan}`, ' stp edged-port enable', ...(f.l2sec ? [' ip source check user-bind enable'] : []), ...(f.dot1x ? [' authentication-profile CAMPUS_DOT1X'] : []), 'quit', `port-group name UNUSED_PORTS_${mi}`, ` group-member GigabitEthernet${mi - 1}/0/${n - 3} to GigabitEthernet${mi - 1}/0/${n}`, ' description UNUSED_SHUTDOWN', ' shutdown', 'quit'].join('\n')); });
     if (virt) { [...new Set(mine.map(l => l.lag))].forEach(lag => { body.push(lagBlock(lag, false)); mine.filter(l => l.lag === lag).forEach(l => body.push(trunk(l.aPort, `MEC${lag}-${l.core.hostname}-${l.cPort}`, lag))); }); }
     else mine.forEach(l => body.push(trunk(l.aPort, `TO-${l.core.hostname}-${l.cPort}`)));
@@ -963,7 +966,8 @@ function analyzePlan() {
       }
     }
   });
-  state.plan = { notes, intent, ids, devices: devsMap, facts, topo, a, b, fa, fb, definition: d, alternatives, outputs, audits };
+  const cmx = window.NETCUBE_CM ? window.NETCUBE_CM.process(protocol, intent, ids, devsMap, outputs, notes) : { riskText: '', crText: '', preflight: [] };
+  state.plan = { notes, intent, ids, devices: devsMap, facts, topo, a, b, fa, fb, definition: d, alternatives, outputs, audits, risk: cmx.risk, riskText: cmx.riskText, crText: cmx.crText, preflight: cmx.preflight };
   renderPlan();
 }
 
@@ -1122,9 +1126,15 @@ function renderOutput() {
   let text;
   if (state.outputPanel === 'analysis') text = analysisText(state.outputDevice);
   else if (state.outputPanel === 'field') text = fieldOrderText();
+  else if (state.outputPanel === 'risk') text = p.riskText || 'Risk değerlendirmesi üretilemedi.';
+  else if (state.outputPanel === 'cr') text = p.crText || 'Değişiklik talebi üretilemedi.';
   else if (!output) text = `Bu çözüm ${vendorName(info.vendor)} ${info.model} profili için uygun görünmüyor.\n\nAlternatif olarak OSPF veya BGP planı seçin.`;
   else text = output[state.outputPanel] || 'Bu bölüm için çıktı bulunamadı.';
-  $('#codeOutput').textContent = text;
+  if (state.outputPanel === 'diff' && output && output.diff) text = output.diff;
+  if (state.outputPanel === 'diff' && output && output.diff) {
+    const dt = window.NETCUBE_CM ? window.NETCUBE_CM.trDiff(output.diff) : output.diff;
+    $('#codeOutput').innerHTML = dt.split('\n').map(l => `<span class="${l.startsWith('+ ') ? 'diff-add' : l.startsWith('- ') ? 'diff-del' : ''}">${escHtml(l)}</span>`).join('\n');
+  } else $('#codeOutput').textContent = text;
   $('#codeLabel').textContent = `${vendorName(info.vendor).toUpperCase()} ${info.os.toUpperCase()} · ${state.outputPanel.toUpperCase()}`;
   $$('.output-nav button').forEach(b => b.classList.toggle('active', b.dataset.panel === state.outputPanel));
   $('#deltaCaption').textContent = state.solution === 'hardening'
@@ -1378,7 +1388,7 @@ function renderCampusRows() {
   const counters = { core: 0, access: 0 };
   host.innerHTML = state.campus.map(r => {
     const n = ++counters[r.role];
-    const auto = `${r.role === 'core' ? 'CORE' : 'ACCESS'}-${String(n).padStart(2, '0')}`;
+    const auto = autoHost(r.role, n, `${r.role === 'core' ? 'CORE' : 'ACCESS'}-${String(n).padStart(2, '0')}`);
     const vendorOpts = ['cisco', 'aruba', 'huawei'].map(v => `<option value="${v}"${v === r.vendor ? ' selected' : ''}>${vendorName(v)}</option>`).join('');
     const modelOpts = campusModelsFor(r.vendor, r.role).map(m => `<option value="${escHtml(m.model)}"${m.model === r.model ? ' selected' : ''}>${escHtml(m.model)}</option>`).join('') + `<option value="${CUSTOM_MODEL}"${r.model === CUSTOM_MODEL ? ' selected' : ''}>Diğer (elle gir)…</option>`;
     const portsOpts = [24, 48].map(p => `<option value="${p}"${Number(r.ports) === p ? ' selected' : ''}>${p}</option>`).join('');
@@ -1448,6 +1458,10 @@ function wanFeatures(text) {
   if (/\bospf\b/.test(t)) f.overlay = 'ospf'; else if (/\bbgp\b/.test(t)) f.overlay = 'bgp'; else if (/eigrp/.test(t)) f.overlay = 'eigrp'; else if (/\bstatic\b|statik/.test(t)) f.overlay = 'static';
   if (/phase ?2|faz ?2/.test(t)) f.phase = 2;
   f.cryptoMap = /crypto map|policy.?based|politika tabanlı/.test(t);
+  f.dualIsp = /dual.?isp|iki isp|çift isp|çift hat|iki hat|yedek (?:isp|hat)|ikinci (?:isp|hat)|isp (?:yedek|failover)|wan failover|failover/.test(t);
+  f.qos = /\bqos\b|\bvoip\b|ses trafi|trafik öncelik|\bdscp\b/.test(t);
+  if (f.dualIsp) f.labels.push('WAN çift ISP yedeklemesi');
+  if (f.qos) f.labels.push('WAN QoS politikası');
   return f;
 }
 
@@ -1461,7 +1475,7 @@ function wanInventory() {
     const role = r.role === 'hub' ? 'hub' : 'spoke'; const idx = cnt[role]++;
     const vendor = r.vendor;
     const model = (r.model === CUSTOM_MODEL ? (r.custom || '').trim() : r.model) || ((catalogFor(vendor).find(d => d.roles.includes('router')) || {}).model) || 'Router';
-    const hostname = (r.hostname || '').trim().replace(/\s+/g, '-') || `${role === 'hub' ? 'HUB' : 'SPOKE'}-${String(idx + 1).padStart(2, '0')}`;
+    const hostname = (r.hostname || '').trim().replace(/\s+/g, '-') || autoHost(role, idx + 1, `${role === 'hub' ? 'HUB' : 'SPOKE'}-${String(idx + 1).padStart(2, '0')}`);
     if (seen.has(hostname)) notes.push(`Hostname ${hostname} birden fazla cihazda kullanılıyor.`); seen.add(hostname);
     let wanTyped = (r.wan || '').trim().toLowerCase(); let dhcp = false; let wanIp = ''; let wanMask = '<WAN_MASK>';
     if (wanTyped === 'dhcp') { if (role === 'hub') { notes.push(`${hostname}: hub için statik WAN IP gerekir; örnek adres kullanıldı.`); wanTyped = ''; autoWan = true; } else dhcp = true; }
@@ -1563,6 +1577,47 @@ function wanCiscoOverlay(r, inv, tunIfs) {
   return L;
 }
 
+function wanHubHostRoutes(r, inv, cisco) {
+  if (r.role !== 'spoke' || !inv.hubs || !inv.hubs.length) return [];
+  return inv.hubs.flatMap(h => (cisco
+    ? ['ip route ' + h.wan + ' 255.255.255.255 <ISP1_NEXT_HOP> track 10', 'ip route ' + h.wan + ' 255.255.255.255 <ISP2_NEXT_HOP> 250']
+    : ['ip route-static ' + h.wan + ' 255.255.255.255 <ISP1_NEXT_HOP> track nqa admin ISP1', 'ip route-static ' + h.wan + ' 255.255.255.255 <ISP2_NEXT_HOP> preference 100']));
+}
+
+function wanCiscoExtras(r, inv) {
+  const f = inv.f || {}; const L = [];
+  if (f.dualIsp) {
+    L.push('! Dual-ISP: <...> değerlerini doldurun; ISP1 birincil, ISP2 yedek (floating static)', 'interface <WAN2_INTERFACE>', ' description WAN2-BACKUP', ' ip address <WAN2_IP> <WAN2_MASK>', ' no shutdown',
+      'ip sla 10', ' icmp-echo <ISP1_PROBE_IP> source-interface ' + r.wanIf, ' frequency 10', 'ip sla schedule 10 life forever start-time now', 'track 10 ip sla 10 reachability',
+      'ip route 0.0.0.0 0.0.0.0 <ISP1_NEXT_HOP> track 10', 'ip route 0.0.0.0 0.0.0.0 <ISP2_NEXT_HOP> 250', ...wanHubHostRoutes(r, inv, true),
+      '! Tünel kaynağı birincil WAN arayüzüne bağlıdır; ISP değişiminde tünelin yeniden kurulması için tunnel source olarak loopback kullanmayı veya ikinci bir tünel tasarlamayı değerlendirin');
+  }
+  if (f.qos) {
+    L.push('class-map match-any QOS-VOICE', ' match dscp ef', 'class-map match-any QOS-VIDEO', ' match dscp af41 af42', 'class-map match-any QOS-CRITICAL', ' match dscp af31 cs6',
+      'policy-map WAN-QOS', ' class QOS-VOICE', '  priority percent 20', ' class QOS-VIDEO', '  bandwidth remaining percent 30', ' class QOS-CRITICAL', '  bandwidth remaining percent 30', ' class class-default', '  fair-queue',
+      'policy-map WAN-SHAPER', ' class class-default', '  shape average <WAN_RATE_BPS>', '  service-policy WAN-QOS', 'interface ' + r.wanIf, ' service-policy output WAN-SHAPER',
+      '! QoS: shape değerini ISP hattının gerçek hızına göre girin; DSCP işaretlemesinin uçtan uca korunduğunu doğrulayın');
+  }
+  return L;
+}
+
+function wanHuaweiExtras(r, inv) {
+  const f = inv.f || {}; const L = [];
+  if (f.dualIsp) {
+    L.push('# Dual-ISP: <...> değerlerini doldurun; ISP1 birincil, ISP2 yedek', 'interface <WAN2_INTERFACE>', ' description WAN2_BACKUP', ' ip address <WAN2_IP> <WAN2_MASK>', 'quit',
+      'nqa test-instance admin ISP1', ' test-type icmp', ' destination-address ipv4 <ISP1_PROBE_IP>', ' frequency 10', ' start now', 'quit',
+      'ip route-static 0.0.0.0 0.0.0.0 <ISP1_NEXT_HOP> track nqa admin ISP1', 'ip route-static 0.0.0.0 0.0.0.0 <ISP2_NEXT_HOP> preference 100', ...wanHubHostRoutes(r, inv, false),
+      '# NQA/track komutları AR model ve sürümüne göre doğrulanmalıdır');
+  }
+  if (f.qos) {
+    L.push('traffic classifier QOS_VOICE operator or', ' if-match dscp ef', 'quit', 'traffic classifier QOS_CRITICAL operator or', ' if-match dscp af31', 'quit',
+      'traffic behavior QOS_VOICE', ' queue ef bandwidth pct 20', 'quit', 'traffic behavior QOS_CRITICAL', ' queue af bandwidth pct 30', 'quit',
+      'traffic policy WAN_QOS', ' classifier QOS_VOICE behavior QOS_VOICE', ' classifier QOS_CRITICAL behavior QOS_CRITICAL', 'quit', 'interface ' + r.wanIf, ' traffic-policy WAN_QOS outbound', 'quit',
+      '# QoS komutları AR model ve sürümüne göre doğrulanmalıdır; WAN hızına göre shaping ayrıca tanımlanmalıdır');
+  }
+  return L;
+}
+
 function wanCiscoDevice(r, inv) {
   const L = [`! ===== ${r.hostname} · ${r.model} · ${r.role.toUpperCase()} =====`, '! Arayüz adlarını model ve port numaralandırmasına göre doğrulayın', ...wanCiscoBase(r)];
   const f = inv.f; const mtu = [' ip mtu 1400', ' ip tcp adjust-mss 1360'];
@@ -1585,7 +1640,7 @@ function wanCiscoDevice(r, inv) {
     if (inv.overlay === 'ospf') tun.push(' ip ospf network broadcast', ` ip ospf priority ${r.role === 'hub' ? (r === primary ? 255 : 200) : 0}`);
     L.push(...tun, ...wanCiscoOverlay(r, inv));
     if (r.role === 'hub' && inv.overlay === 'eigrp' && inv.phase === 3) L.push('! Phase 3: hub, spoke LAN\'lerini özetleyerek gönderir; spoke-to-spoke yollar NHRP shortcut ile kurulur');
-    return L.concat('end').join('\n');
+    return L.concat(wanCiscoExtras(r, inv), 'end').join('\n');
   }
   // site-to-site / GRE over IPsec
   const mine = inv.links.filter(l => l.x.id === r.id || l.y.id === r.id).map(l => { const x = l.x.id === r.id; return { l, peer: x ? l.y : l.x, myIp: x ? l.xIp : l.yIp, peerIp: x ? l.yIp : l.xIp, tun: x ? l.xTun : l.yTun }; });
@@ -1609,7 +1664,7 @@ function wanCiscoDevice(r, inv) {
     });
   } else L.push(...wanCiscoOverlay(r, inv));
   if (pol.length) L.push('! Politika tabanlı tünellerde uzak LAN\'e giden rota WAN next-hop üzerinden olmalı (ip route <REMOTE_LAN> <MASK> <WAN_NEXT_HOP>)');
-  return L.concat('end').join('\n');
+  return L.concat(wanCiscoExtras(r, inv), 'end').join('\n');
 }
 
 function wanHuaweiDevice(r, inv) {
@@ -1637,7 +1692,7 @@ function wanHuaweiDevice(r, inv) {
   }
   if (inv.overlay === 'ospf') L.push('ospf 10 router-id ' + r.tun, ' area 0.0.0.0', '  network 172.31.0.0 0.0.255.255', `  network ${r.lanNet} ${r.lanWildcard}`, ` silent-interface ${r.lanIf}`, 'quit');
   else if (inv.overlay === 'bgp') { L.push(`bgp ${r.asn}`, ...mine.map(m => ` peer ${m.peerIp} as-number ${m.peer.asn}`), ' ipv4-family unicast', `  network ${r.lanNet} ${r.lanMask}`, ...mine.map(m => `  peer ${m.peerIp} enable`), ' quit', 'quit'); }
-  return L.concat('return').join('\n');
+  return L.concat(wanHuaweiExtras(r, inv), 'return').join('\n');
 }
 
 function wanReport(inv) {
@@ -1648,6 +1703,7 @@ function wanReport(inv) {
   if (inv.type === 'dmvpn') inv.routers.forEach(r => L.push(`${r.hostname} Tunnel100 ${r.tun}/24${r.role === 'hub' ? ' (NHS)' : ''}`));
   else inv.links.forEach(l => L.push(`${l.x.hostname} Tunnel${l.xTun} ${l.xIp} ↔ ${l.y.hostname} Tunnel${l.yTun} ${l.yIp}${l.policy ? ' (politika tabanlı)' : ''}`));
   L.push('', 'KRİPTO PARAMETRELERİ', '- IKEv2 · AES-256 · SHA-256 · DH group 14 · DPD açık', '- IPsec ESP · AES-256 · SHA-256', '- Tünel MTU 1400 · TCP MSS 1360');
+  if (inv.f.dualIsp || inv.f.qos) { L.push('', 'EK ÖZELLİKLER'); if (inv.f.dualIsp) L.push('- Çift ISP: ISP1 birincil (IP SLA / NQA ile izlenir), ISP2 yedek (floating static); hub NBMA adresleri için ISP başına host rotası'); if (inv.f.qos) L.push('- QoS: VOICE (EF, priority %20), VIDEO (AF41/AF42), CRITICAL (AF31/CS6) ve default sınıfı; WAN çıkışında shaping'); }
   L.push('', 'GÜVENLİK NOTLARI', '- Pre-shared key ve NHRP anahtarları yer tutucudur; üretimde güçlü ve ayrı anahtarlar kullanın, mümkünse sertifika (PKI) tercih edin.');
   if (inv.type === 'dmvpn') L.push('- NHRP kimlik doğrulaması ve tunnel key tanımlıdır.', inv.phase === 3 ? '- Phase 3: hub özet rota gönderir, spoke-to-spoke tüneller NHRP redirect/shortcut ile kurulur.' : '- Phase 2: spoke-to-spoke yönlendirme için hub next-hop korur.');
   L.push('- Lisans: IPsec/DMVPN için Security (K9) lisansı ve şifreleme throughput lisansı gerekebilir.', '', 'VARSAYIM', 'Gerçek arayüz adları, WAN maskeleri, lisans ve komut desteği tam model/sürüm profiliyle doğrulanmalıdır.');
@@ -1661,7 +1717,7 @@ function wanConfig(vendor, side) {
   const V = vendor === 'cisco'
     ? (inv.type === 'dmvpn' ? ['show dmvpn detail', 'show ip nhrp', 'show crypto ikev2 sa', 'show crypto ipsec sa', 'show interface tunnel 100', 'show ip route', inv.overlay === 'eigrp' ? 'show ip eigrp neighbors' : inv.overlay === 'ospf' ? 'show ip ospf neighbor' : 'show ip bgp summary'] : ['show crypto ikev2 sa', 'show crypto ipsec sa', 'show crypto map', 'show ip interface brief | include Tunnel', 'show ip route', 'ping <REMOTE_LAN_IP> source ' + r.lanIf])
     : ['display ike sa', 'display ipsec sa', 'display ipsec statistics', 'display ip routing-table', 'ping -a ' + r.lanGw + ' <REMOTE_LAN_IP>'];
-  const verify = [`${r.hostname} · ${r.role.toUpperCase()}`, '', ...V.map((c, i) => c), '', '1. IKE/IPsec SA\'ların kurulduğunu ve sayaçların arttığını doğrula.', '2. Uzak LAN\'lere yönlendirme ve ping testi yap.', '3. MTU/MSS: büyük paketlerle (ping size 1400, DF) fragmentasyon olmadığını doğrula.'];
+  const verify = [`${r.hostname} · ${r.role.toUpperCase()}`, '', ...V.map((c, i) => c), '', '1. IKE/IPsec SA\'ların kurulduğunu ve sayaçların arttığını doğrula.', '2. Uzak LAN\'lere yönlendirme ve ping testi yap.', '3. MTU/MSS: büyük paketlerle (ping size 1400, DF) fragmentasyon olmadığını doğrula.', ...(inv.f.dualIsp ? ['4. ISP1 kesildiğinde varsayılan rotanın ISP2 hattına döndüğünü doğrula (show track / show ip route 0.0.0.0 / display ip routing-table 0.0.0.0).'] : []), ...(inv.f.qos ? ['5. QoS sınıf sayaçlarını doğrula (show policy-map interface / display traffic policy statistics).'] : [])];
   return { delta: full, full, audit: wanReport(inv), verify: verify.join('\n'), rollback: 'Yedek alın (copy running-config flash:pre-vpn.cfg / save pre-vpn.cfg). Geri dönüş: tünel arayüzlerini, crypto/ipsec nesnelerini ve crypto map\'i kaldırın veya yedek config\'i geri yükleyin; WAN erişimini (konsol/OOB) kaybetmeden önce yönlendirme değişikliklerini ayrı uygulayın.' };
 }
 
@@ -1685,7 +1741,7 @@ function renderWanRows() {
   const counters = { hub: 0, spoke: 0 };
   host.innerHTML = state.wan.map(r => {
     const n = ++counters[r.role];
-    const auto = `${r.role === 'hub' ? 'HUB' : 'SPOKE'}-${String(n).padStart(2, '0')}`;
+    const auto = autoHost(r.role, n, `${r.role === 'hub' ? 'HUB' : 'SPOKE'}-${String(n).padStart(2, '0')}`);
     const vendorOpts = WAN_VENDORS.map(v => `<option value="${v}"${v === r.vendor ? ' selected' : ''}>${vendorName(v)}</option>`).join('');
     const modelOpts = wanModelsFor(r.vendor).map(m => `<option value="${escHtml(m.model)}"${m.model === r.model ? ' selected' : ''}>${escHtml(m.model)}</option>`).join('') + `<option value="${CUSTOM_MODEL}"${r.model === CUSTOM_MODEL ? ' selected' : ''}>Diğer (elle gir)…</option>`;
     return `<div class="campus-row wan-row ${r.role}" data-row="${r.id}"><span class="role-badge ${r.role === 'hub' ? 'core' : 'access'}">${r.role === 'hub' ? 'HUB' : 'SPOKE'}</span>
@@ -1721,6 +1777,8 @@ function wanApplyIntent() {
       state.wan = [...hubs, ...spokes]; renderWanRows(); msgs.push(`cihaz sayısı niyetten alındı (${wh} hub, ${ws} spoke)`);
     }
   }
+  if (f.dualIsp) msgs.push('WAN çift ISP yedeklemesi');
+  if (f.qos) msgs.push('WAN QoS politikası');
   state.wanIntentMsgs = msgs; return f;
 }
 
@@ -1780,3 +1838,17 @@ function initWanUi() {
   renderWanRows();
 }
 initWanUi();
+
+// ---------- Kurumsal standartlar (golden config / isimlendirme) ----------
+(function initStandards() {
+  const CMX = window.NETCUBE_CM; if (!CMX || !$('#goldenEnabled')) return;
+  const g = CMX.getGolden(), n = CMX.getNaming();
+  $('#goldenEnabled').checked = g.enabled; $('#goldenCisco').value = g.cisco; $('#goldenAruba').value = g.aruba; $('#goldenHuawei').value = g.huawei;
+  $('#namingPattern').value = n.pattern; $('#namingSite').value = n.site;
+  if (g.enabled || n.pattern) $('#standardsBox').open = true;
+  const save = () => {
+    CMX.setGolden({ enabled: $('#goldenEnabled').checked, cisco: $('#goldenCisco').value, aruba: $('#goldenAruba').value, huawei: $('#goldenHuawei').value });
+    CMX.setNaming({ pattern: $('#namingPattern').value.trim(), site: $('#namingSite').value.trim() });
+  };
+  ['goldenEnabled', 'goldenCisco', 'goldenAruba', 'goldenHuawei', 'namingPattern', 'namingSite'].forEach(id => $('#' + id).addEventListener('input', save));
+})();

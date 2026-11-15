@@ -105,7 +105,7 @@
           </article>
         </div>
 
-        <div class="device-actions" id="deviceActions"><button type="button" class="text-button" id="addDeviceButton">+ Cihaz ekle</button><small id="deviceCountNote">2 / 6 cihaz</small><small>Rol olarak Spine seçilen cihazlar route-reflector/omurga olur; diğerleri leaf bağlanır. Spine yoksa cihazlar mesh bağlanır.</small></div>
+        <div class="device-actions" id="deviceActions"><button type="button" class="text-button" id="addDeviceButton">+ Cihaz ekle</button><small id="deviceCountNote">2 / 6 cihaz</small><small id="spineHint">Rol olarak Spine seçilen cihazlar route-reflector/omurga olur; diğerleri leaf bağlanır. Spine yoksa cihazlar mesh bağlanır.</small></div>
 
         <div class="context-panel campus-context" id="wanContext" hidden>
           <div><p class="context-kicker">WAN / VPN</p><strong>Router envanteri</strong></div>
@@ -191,6 +191,18 @@
           <textarea id="intentInput" rows="4">İki cihazdaki VLAN 40'ı aynı Layer 2 ağ olarak uzat. Adı BILGI_ISLEM olsun. VNI ve gerekli loopback adreslerini sen belirle. Mevcut yapıyı bozmadan VXLAN EVPN kullan.</textarea>
           <span class="intent-hint">Türkçe yazabilirsin · Teknik terim kullanmak zorunda değilsin</span>
         </label>
+        <details class="standards" id="standardsBox">
+          <summary>Kurumsal standartlar <small>Golden config · isimlendirme</small></summary>
+          <div class="standards-grid">
+            <label class="check-line"><input type="checkbox" id="goldenEnabled"> Golden config'i tüm çıktılara ekle</label>
+            <p class="hint-line">Her kutuya o üreticinin cihazlarına eklenecek komutları yazın (NTP, syslog, banner, SNMP, AAA…). Cihazda zaten olan satırlar tekrar eklenmez.</p>
+            <label>Cisco IOS-XE / NX-OS<textarea id="goldenCisco" rows="4" placeholder="ntp server 10.0.0.1&#10;logging host 10.0.0.2&#10;banner motd ^Authorized use only^"></textarea></label>
+            <label>Aruba AOS-CX<textarea id="goldenAruba" rows="4" placeholder="ntp server 10.0.0.1&#10;logging 10.0.0.2"></textarea></label>
+            <label>Huawei VRP<textarea id="goldenHuawei" rows="4" placeholder="ntp-service unicast-server 10.0.0.1&#10;info-center loghost 10.0.0.2"></textarea></label>
+            <label>Hostname şablonu<input id="namingPattern" placeholder="{site}-{role}-{nn}   örn. IST-CORE-01"><span class="hint-line">Kullanılabilir: {site} {role} {nn} {n}. Boş bırakırsanız CORE-01 gibi varsayılan adlar kullanılır; elle yazdığınız hostname'ler değişmez.</span></label>
+            <label>Site kodu<input id="namingSite" placeholder="IST"></label>
+          </div>
+        </details>
         <div class="intent-footer">
           <div class="safety"><span>✓</span> Cihaza bağlanmaz · Config uygulamaz · Önce plan üretir</div>
           <button class="primary" id="analyzeButton" type="button"><span>Planı hazırla</span><b>→</b></button>
@@ -263,10 +275,13 @@
             <button type="button" data-panel="rollback">Rollback</button>
             <button type="button" data-panel="analysis">Analiz</button>
             <button type="button" data-panel="field">Saha emri</button>
+            <button type="button" data-panel="diff">Fark</button>
+            <button type="button" data-panel="risk">Risk</button>
+            <button type="button" data-panel="cr">Değişiklik talebi</button>
             <button type="button" class="hardening-only" data-panel="full" hidden>Tam hedef config</button>
             <button type="button" class="hardening-only" data-panel="audit" hidden>Hardening raporu</button>
           </nav>
-          <div class="code-toolbar"><span id="codeLabel">CISCO IOS-XE · DELTA</span><button id="copyButton" type="button">Kopyala</button></div>
+          <div class="code-toolbar"><span id="codeLabel">CISCO IOS-XE · DELTA</span><span class="code-actions"><button id="labExportButton" type="button">Lab paketi (ZIP)</button><button id="copyButton" type="button">Kopyala</button></span></div>
           <pre><code id="codeOutput"></code></pre>
           <div class="apply-order">
             <span>Uygulama sırası</span>
@@ -278,13 +293,15 @@
 
     <footer><span>NetCube Intent · güvenli ağ değişikliği prototipi</span><span>Plan üretir, uygulama yapmaz.</span></footer>
   </div>
-  <script src="devices.js?v=0.11.0"></script>
-  <script src="parser.js?v=0.11.0"></script>
-  <script src="fabric.js?v=0.11.0"></script>
-  <script src="audit.js?v=0.11.0"></script>
-  <script src="app.js?v=0.11.0"></script>
-  <script src="history.js?v=0.11.0"></script>
-  <script src="i18n-en.js?v=0.11.0"></script>
-  <script src="i18n.js?v=0.11.0"></script>
+  <script src="devices.js?v=0.12.0"></script>
+  <script src="parser.js?v=0.12.0"></script>
+  <script src="fabric.js?v=0.12.0"></script>
+  <script src="audit.js?v=0.12.0"></script>
+  <script src="app.js?v=0.12.0"></script>
+  <script src="history.js?v=0.12.0"></script>
+  <script src="changemgmt.js?v=0.12.0"></script>
+  <script src="labexport.js?v=0.12.0"></script>
+  <script src="i18n-en.js?v=0.12.0"></script>
+  <script src="i18n.js?v=0.12.0"></script>
 </body>
 </html>
