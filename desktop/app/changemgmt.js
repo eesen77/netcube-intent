@@ -71,6 +71,33 @@
     return String(text).split(NL).map(l => (/^([+-]| ) /.test(l) ? l.slice(0, 2) + I.t(l.slice(2)) : I.t(l))).join(NL);
   };
 
+  // Yan yana görünüm: '-' ve '+' blokları aynı satırlara hizalanır, uzun değişmeyen kısımlar özetlenir
+  CM.sideBySideHtml = function (diffText, ops) {
+    const I = window.I18N; const en = Boolean(I && I.lang === 'en'); const T = x => (en ? I.t(x) : x);
+    const esc = x => String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const lines = String(diffText).split(NL); const intro = T(lines[0] || ''); const sum = T(lines.find(l => l.startsWith('FARK ÖZETİ')) || '');
+    const rows = []; let i = 0;
+    while (i < ops.length) {
+      if (ops[i].t === '=') { rows.push({ l: ops[i], r: ops[i] }); i++; continue; }
+      const dels = [], adds = [];
+      while (i < ops.length && ops[i].t === '-') dels.push(ops[i++]);
+      while (i < ops.length && ops[i].t === '+') adds.push(ops[i++]);
+      for (let k = 0; k < Math.max(dels.length, adds.length); k++) rows.push({ l: dels[k] || null, r: adds[k] || null });
+    }
+    const keep = rows.map(() => false);
+    rows.forEach((r, k) => { if ((r.l && r.l.t === '-') || (r.r && r.r.t === '+')) for (let j = Math.max(0, k - 3); j <= Math.min(rows.length - 1, k + 3); j++) keep[j] = true; });
+    let out = '<div class="diff-note">' + esc(intro) + '<br><b>' + esc(sum) + '</b></div><div class="sbs"><div class="sbs-head"><span>' + esc(T('Mevcut config')) + '</span><span>' + esc(T('Hedef config')) + '</span></div>';
+    let skipped = 0;
+    const cell = (o, cls) => '<div class="sbs-cell ' + (o ? cls : 'empty') + '">' + (o ? esc(T(o.s)) : '') + '</div>';
+    rows.forEach((r, k) => {
+      if (!keep[k]) { skipped++; return; }
+      if (skipped) { out += '<div class="sbs-gap">… ' + skipped + ' ' + esc(T('değişmeyen satır')) + '</div>'; skipped = 0; }
+      out += '<div class="sbs-row">' + cell(r.l, r.l && r.l.t === '-' ? 'del' : '') + cell(r.r, r.r && r.r.t === '+' ? 'add' : '') + '</div>';
+    });
+    if (skipped) out += '<div class="sbs-gap">… ' + skipped + ' ' + esc(T('değişmeyen satır')) + '</div>';
+    return out + '</div>';
+  };
+
   CM.diffFor = function (existing, out, hasFull) {
     if (!(existing || '').trim()) return 'Fark için bu cihaza running-config yükleyin (Dosya seç veya Örnek config kullan).';
     if (hasFull) return 'Mevcut config ile üretilen hedef config karşılaştırması (+ eklenir, - çıkarılır):' + NL + NL + CM.formatDiff(CM.diff(existing, out));
@@ -234,6 +261,7 @@
       const o = outputs[i]; if (!o) return; const main = o.full || o.delta || ''; const existing = state.configs[i] || '';
       if (isNew) { o.diff = 'Yeni kurulum: karşılaştırılacak mevcut config yok; tüm komutlar eklenecektir.'; return; }
       o.diff = CM.diffFor(existing, main, Boolean(o.full));
+      if (existing.trim()) o.diffOps = o.full ? CM.diff(existing, main) : CM.deltaView(existing, main);
       if (existing.trim()) { anyExisting = true; const ops = o.full ? CM.diff(existing, main) : CM.deltaView(existing, main); added += ops.filter(x => x.t === '+').map(x => x.s).join(NL) + NL; removed += ops.filter(x => x.t === '-').length; }
     });
     const nameOf = i => (devsMap[i] && devsMap[i].hostname) || `DEVICE-${i.toUpperCase()}`;

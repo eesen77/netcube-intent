@@ -1,4 +1,6 @@
+const wsStash = {};
 const state = {
+  ws: 'main',
   mode: 'live',
   module: 'routing',
   configs: { a: '', b: '' },
@@ -96,6 +98,11 @@ function setMode(mode) {
 }
 
 function setModule(module) {
+  const prevModule = state.module; const restoringJob = Boolean(window.NETCUBE_JOBS && window.NETCUBE_JOBS.restoring);
+  const wsTarget = module === 'audit' ? 'audit' : 'main';
+  if (!restoringJob && wsTarget !== state.ws) { wsStash[state.ws] = captureDeviceCards(); applyDeviceCards(wsStash[wsTarget] || defaultDeviceCards(wsTarget)); }
+  state.ws = wsTarget;
+  if (!restoringJob && module !== prevModule) clearResults();
   state.module = module; state.forced = null;
   state.outputPanel = module === 'audit' ? 'audit' : 'delta';
   state.outputDevice = 'a';
@@ -107,11 +114,14 @@ function setModule(module) {
   $('#auditContext').hidden = module !== 'audit';
   $('#wanContext').hidden = module !== 'wan';
   $('.device-grid').hidden = module === 'campus' || module === 'wan';
-  $$('.device-card').forEach(c => { c.hidden = module === 'hardening' && c.dataset.device !== 'a'; });
+  applyCardVisibility(module);
   const actions = $('#deviceActions'); if (actions) actions.hidden = !['routing', 'cabling', 'security', 'audit'].includes(module);
+  const seg = $('.segmented'); if (seg) seg.hidden = ['audit', 'campus', 'wan'].includes(module);
   const spineHint = $('#spineHint'); if (spineHint) spineHint.hidden = !['routing', 'cabling'].includes(module);
   const navVisible = { hardening: ['full', 'audit'], campus: ['full', 'audit'], audit: ['audit'], security: ['audit'], wan: ['audit'] }[module] || [];
   $$('.hardening-only').forEach(x => { x.hidden = !navVisible.includes(x.dataset.panel); });
+  const fieldBtn = $('.output-nav [data-panel="field"]'); if (fieldBtn) fieldBtn.hidden = !['routing', 'cabling'].includes(module);
+  const diffBtn = $('.output-nav [data-panel="diff"]'); if (diffBtn) diffBtn.hidden = ['campus', 'wan'].includes(module);
   const auditBtn = $('.hardening-only[data-panel="audit"]'); if (auditBtn) auditBtn.textContent = ['audit', 'security'].includes(module) ? 'Denetim raporu' : 'Hardening raporu';
   if (module === 'wan' && auditBtn) auditBtn.textContent = 'Tasarım raporu';
   const deltaBtn = $('.output-nav [data-panel="delta"]'); if (deltaBtn) deltaBtn.textContent = module === 'audit' ? 'Düzeltme komutları' : module === 'wan' ? 'Router config' : 'Delta config';
@@ -126,7 +136,10 @@ function setModule(module) {
   };
   $('#intentInput').value = window.I18N ? I18N.t(text[module]) : text[module];
   if (module === 'audit') setMode('live');
+  const modeNotes = { audit: 'Kendi running-config dosyanı yükle; seçili profillere göre denetlenir ve düzeltme komutları üretilir.', campus: 'Cihazlarını ekle; config, port planı ve topoloji niyetinden üretilir.', wan: 'Router envanterini ekle; VPN config, tünel planı ve topoloji niyetinden üretilir.' };
+  if (modeNotes[module]) $('#modeNote').textContent = modeNotes[module];
   retitleCards(module);
+  renderHowTo(module);
   const grid = $('.device-grid'); if (grid) grid.dataset.module = module;
   if (module === 'audit') {
     const restoring = window.NETCUBE_JOBS && window.NETCUBE_JOBS.restoring;
@@ -841,7 +854,7 @@ function analyzePlan() {
   if (state.module === 'routing' && !state.forced && /dmvpn|nhrp|mgre|site.?to.?site|\bs2s\b|ipsec|ikev2|\bvpn\b|gre tunnel/i.test(intent)) {
     setModule('wan'); $('#intentInput').value = intent; state.wanSwitched = true; return analyzePlan();
   }
-  let ids = ['routing', 'cabling', 'security', 'audit'].includes(state.module) ? deviceIds() : ['a', 'b'];
+  let ids = ['routing', 'cabling', 'security', 'audit'].includes(state.module) ? activeDeviceIds() : ['a', 'b'];
   let devsMap = {}; ids.forEach(i => { devsMap[i] = deviceInfo(i); });
   if (['security', 'hardening'].includes(state.module)) ids.forEach(i => { devsMap[i].role = 'leaf'; });
   if (state.module === 'wan') { wanApplyIntent(); const winv = wanInventory(); state.wanInv = winv; devsMap = {}; ids = winv.routers.map(r => { devsMap[r.id] = r; return r.id; }); }
@@ -969,6 +982,7 @@ function analyzePlan() {
   const cmx = window.NETCUBE_CM ? window.NETCUBE_CM.process(protocol, intent, ids, devsMap, outputs, notes) : { riskText: '', crText: '', preflight: [] };
   state.plan = { notes, intent, ids, devices: devsMap, facts, topo, a, b, fa, fb, definition: d, alternatives, outputs, audits, risk: cmx.risk, riskText: cmx.riskText, crText: cmx.crText, preflight: cmx.preflight };
   renderPlan();
+  renderRiskBanner();
 }
 
 function renderPlan() {
@@ -1006,7 +1020,7 @@ function renderPlan() {
   const now = new Intl.DateTimeFormat(window.I18N ? I18N.locale() : 'tr-TR', { hour: '2-digit', minute: '2-digit' }).format(new Date());
   $('#snapshotLabel').textContent = `Config snapshot · ${now}`;
   updateDeviceTabs(); renderOutput();
-  $('#results').hidden = false;
+  $('#results').hidden = false; { const lay = $('#layout'); if (lay) lay.classList.add('has-results'); }
   setTimeout(() => $('#results').scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
 }
 
@@ -1131,7 +1145,10 @@ function renderOutput() {
   else if (!output) text = `Bu çözüm ${vendorName(info.vendor)} ${info.model} profili için uygun görünmüyor.\n\nAlternatif olarak OSPF veya BGP planı seçin.`;
   else text = output[state.outputPanel] || 'Bu bölüm için çıktı bulunamadı.';
   if (state.outputPanel === 'diff' && output && output.diff) text = output.diff;
-  if (state.outputPanel === 'diff' && output && output.diff) {
+  const dtg = $('#diffToggle'); if (dtg) { dtg.hidden = !(state.outputPanel === 'diff' && output && output.diffOps); $$('button', dtg).forEach(b => b.classList.toggle('active', b.dataset.diffview === (state.diffView || 'side'))); }
+  if (state.outputPanel === 'diff' && output && output.diffOps && (state.diffView || 'side') === 'side' && window.NETCUBE_CM) {
+    $('#codeOutput').innerHTML = window.NETCUBE_CM.sideBySideHtml(output.diff, output.diffOps);
+  } else if (state.outputPanel === 'diff' && output && output.diff) {
     const dt = window.NETCUBE_CM ? window.NETCUBE_CM.trDiff(output.diff) : output.diff;
     $('#codeOutput').innerHTML = dt.split('\n').map(l => `<span class="${l.startsWith('+ ') ? 'diff-add' : l.startsWith('- ') ? 'diff-del' : ''}">${escHtml(l)}</span>`).join('\n');
   } else $('#codeOutput').textContent = text;
@@ -1164,6 +1181,7 @@ $$('.segmented button').forEach(b => b.addEventListener('click', () => setMode(b
 $$('.module-picker button').forEach(b => b.addEventListener('click', () => setModule(b.dataset.module)));
 const MAX_DEVICES = 6;
 function deviceIds() { return $$('.device-card').map(c => c.dataset.device); }
+function activeDeviceIds() { return $$('.device-card').filter(c => !c.hidden).map(c => c.dataset.device); }
 
 function bindCard(card) {
   const id = () => card.dataset.device;
@@ -1200,12 +1218,13 @@ function bindCard(card) {
 }
 
 function refreshDeviceActions() {
-  const n = deviceIds().length;
+  const n = activeDeviceIds().length;
   const note = $('#deviceCountNote'); if (note) note.textContent = `${n} / ${MAX_DEVICES} cihaz`;
   const btn = $('#addDeviceButton'); if (btn) btn.disabled = n >= MAX_DEVICES;
 }
 
-function addDevice() {
+function addDevice(raw) {
+  if (!raw && state.module === 'audit') { const hid = $$('.device-card').find(c => c.hidden); if (hid) { hid.dataset.shown = '1'; hid.hidden = false; refreshDeviceActions(); return; } }
   const ids = deviceIds(); if (ids.length >= MAX_DEVICES) return;
   let letter = 'a'; for (let i = 0; i < 26; i++) { const l = String.fromCharCode(97 + i); if (!ids.includes(l)) { letter = l; break; } }
   const card = document.querySelector('[data-device="b"]').cloneNode(true);
@@ -1215,7 +1234,7 @@ function addDevice() {
   $('.device-title small', card).textContent = `Leaf ${ids.length + 1}`;
   $('.config-status', card).textContent = 'Henüz yüklenmedi'; $('.config-status', card).classList.remove('loaded');
   $('.config-file', card).value = '';
-  card.classList.remove('show-override'); delete card.dataset.detected; renderDetectChip(card);
+  card.classList.remove('show-override'); delete card.dataset.detected; delete card.dataset.shown; const ar = $('.audit-remove', card); if (ar) ar.remove(); renderDetectChip(card);
   delete $('.ports', card).dataset.touched;
   const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'remove-device'; btn.setAttribute('aria-label', `Cihaz ${letter.toUpperCase()} kaldır`); btn.textContent = '×';
   $('.device-title', card).appendChild(btn);
@@ -1242,10 +1261,13 @@ $$('.device-card').forEach(card => {
   applyModelDefaults(card);
   bindCard(card);
 });
-$('#addDeviceButton').addEventListener('click', addDevice);
+$('#addDeviceButton').addEventListener('click', () => addDevice());
 refreshDeviceActions();
 $('#intentInput').addEventListener('input', () => { state.forced = null; });
-$('#exampleButton').addEventListener('click', () => { state.forced = null; exampleIndex = (exampleIndex + 1) % examples.length; $('#intentInput').value = window.I18N ? I18N.t(examples[exampleIndex]) : examples[exampleIndex]; });
+$('#exampleButton').addEventListener('click', () => {
+  state.forced = null; const list = MODULE_EXAMPLES[state.module] || examples; const idx = ((state.exIdx = state.exIdx || {})[state.module] = ((state.exIdx[state.module] ?? -1) + 1) % list.length);
+  $('#intentInput').value = window.I18N ? I18N.t(list[idx]) : list[idx];
+});
 $('#analyzeButton').addEventListener('click', () => {
   const btn = $('#analyzeButton'); btn.classList.add('loading'); btn.querySelector('span').textContent = 'Analiz ediliyor';
   setTimeout(() => { analyzePlan(); btn.classList.remove('loading'); btn.querySelector('span').textContent = 'Planı hazırla'; }, 650);
@@ -1470,6 +1492,7 @@ function wanAddOne(net) { const o = net.split('.').map(Number); o[3] += 1; retur
 function wanInventory() {
   const rows = state.wan && state.wan.length ? state.wan : defaultWanRows();
   const f = state.wanFeatures || wanFeatures('');
+  const intentNets = (state.wanIntentNets || []).slice(); const usedNets = [];
   const notes = []; const seen = new Set(); const cnt = { hub: 0, spoke: 0 }; let autoWan = false;
   const routers = rows.map(r => {
     const role = r.role === 'hub' ? 'hub' : 'spoke'; const idx = cnt[role]++;
@@ -1485,7 +1508,7 @@ function wanInventory() {
       else { if (wanTyped) notes.push(`${hostname}: WAN IP '${r.wan}' geçersiz; örnek adres kullanıldı.`); wanIp = role === 'hub' ? `203.0.113.${10 + idx}` : `203.0.113.${50 + idx}`; wanMask = '255.255.255.0'; autoWan = true; }
     }
     let lanCidr = role === 'hub' ? `10.255.${idx}.0/24` : `10.${101 + idx}.0.0/24`;
-    const lanTyped = (r.lan || '').trim();
+    let lanTyped = (r.lan || '').trim(); if (!lanTyped && intentNets.length) { lanTyped = intentNets.shift(); usedNets.push(`${hostname} ${lanTyped}`); }
     if (lanTyped) { const m = lanTyped.match(/^(\d{1,3}(?:\.\d{1,3}){3})\/(\d{1,2})$/); if (m && campusIsIp(m[1]) && Number(m[2]) <= 30) lanCidr = `${netInfo(lanTyped).net}/${m[2]}`; else notes.push(`${hostname}: LAN alt ağı '${lanTyped}' geçersiz (örn. 10.20.0.0/24); otomatik alt ağ kullanıldı.`); }
     const lanNi = netInfo(lanCidr);
     return { id: r.id, role, idx, vendor, model, hostname, wan: wanIp, wanMask, dhcp, os: OS_BY_VENDOR[vendor], version: 'Profil tabanlı', config: '',
@@ -1496,13 +1519,15 @@ function wanInventory() {
   const hubs = routers.filter(r => r.role === 'hub'), spokes = routers.filter(r => r.role === 'spoke');
   const all = routers;
   // VPN türü ve yetenek kontrolü
-  let type = f.type || (hubs.length && routers.length >= 3 ? 'dmvpn' : 's2s'); const requested = type;
+  const typeAuto = !f.type; let type = f.type || (hubs.length && routers.length >= 3 ? 'dmvpn' : 's2s'); const requested = type;
+  if (usedNets.length) notes.push(`LAN alt ağları niyetten alındı: ${usedNets.join(', ')}.`);
+  if (typeAuto) notes.push(`Niyette VPN türü (DMVPN / IPsec / GRE) yok; ${WAN_TYPE_NAME[type].replace('{0}', f.phase)} varsayıldı. Yalnız routing veya VXLAN istiyorsan Routing & Overlay modülünü seç.`);
   const can = (k) => all.every(r => supports(r, k));
   if (type === 'dmvpn' && !can('dmvpn')) { type = can('gre') ? 'gre' : 's2s'; }
   if (type === 'gre' && !can('gre')) type = 's2s';
   if (type !== requested) {
     const who = all.filter(r => !supports(r, requested === 'dmvpn' ? 'dmvpn' : 'gre')).map(r => `${vendorName(r.vendor)} ${r.model}`).join(' / ');
-    notes.push(`${WAN_TYPE_NAME[requested].replace('{0}', f.phase)} istendi ama ${who} desteklemiyor; ${WAN_TYPE_NAME[type].replace('{0}', f.phase)} önerildi.`);
+    notes.push(typeAuto ? `Varsayılan ${WAN_TYPE_NAME[requested].replace('{0}', f.phase)} ${who} tarafından desteklenmiyor; ${WAN_TYPE_NAME[type].replace('{0}', f.phase)} önerildi.` : `${WAN_TYPE_NAME[requested].replace('{0}', f.phase)} istendi ama ${who} desteklemiyor; ${WAN_TYPE_NAME[type].replace('{0}', f.phase)} önerildi.`);
   }
   if (!all.every(r => supports(r, 'ipsec'))) notes.push('Bazı router modelleri IPsec desteklemiyor; tünel şifrelemesi bu cihazlarda uygulanamaz.');
   let overlay = f.overlay;
@@ -1765,6 +1790,7 @@ function wanRow(id) { return state.wan.find(r => r.id === id); }
 function wanApplyIntent() {
   const text = ($('#intentInput') || {}).value || '';
   const f = wanFeatures(text); state.wanFeatures = f;
+  state.wanIntentNets = (text.match(/\b\d{1,3}(?:\.\d{1,3}){3}\/\d{1,2}\b/g) || []).filter(c => Number(c.split('/')[1]) <= 30);
   const t = text.toLowerCase(); const msgs = [];
   const h = t.match(/(\d{1,2})\s*(?:adet\s*)?hub/), s = t.match(/(\d{1,2})\s*(?:adet\s*)?(?:spoke|şube|branch|site|uzak)/);
   if ((h || s) && !state.wanTouched) {
@@ -1851,4 +1877,113 @@ initWanUi();
     CMX.setNaming({ pattern: $('#namingPattern').value.trim(), site: $('#namingSite').value.trim() });
   };
   ['goldenEnabled', 'goldenCisco', 'goldenAruba', 'goldenHuawei', 'namingPattern', 'namingSite'].forEach(id => $('#' + id).addEventListener('input', save));
+})();
+
+// ---------- Çalışma alanları: denetim modülü kendi cihaz kartlarını kullanır ----------
+function clearResults() { state.plan = null; const r = $('#results'); if (r) r.hidden = true; const lay = $('#layout'); if (lay) lay.classList.remove('has-results'); }
+
+function applyCardVisibility(module) {
+  $$('.device-card').forEach((c, i) => {
+    if (module === 'hardening') c.hidden = c.dataset.device !== 'a';
+    else if (module === 'audit') c.hidden = !(i === 0 || (state.configs[c.dataset.device] || '').trim() || c.dataset.shown === '1');
+    else c.hidden = false;
+  });
+  refreshDeviceActions();
+}
+
+function captureDeviceCards() {
+  return $$('.device-card').map(c => ({
+    id: c.dataset.device, vendor: $('.vendor', c).value, model: $('.model', c).value, custom: $('.model-custom', c).value,
+    os: $('.os', c).value, version: $('.version', c).value, role: $('.role', c).value, ports: $('.ports', c).value,
+    touched: Boolean($('.ports', c).dataset.touched), config: state.configs[c.dataset.device] || '',
+    status: $('.config-status', c).textContent, loaded: $('.config-status', c).classList.contains('loaded'),
+    detected: c.dataset.detected || '', override: c.classList.contains('show-override'), shown: c.dataset.shown || ''
+  }));
+}
+
+function defaultDeviceCards(ws) {
+  const base = (id, vendor, model, os, version) => ({ id, vendor, model, custom: '', os, version, role: 'leaf', ports: '49, 50', touched: false, config: '', status: 'Henüz yüklenmedi', loaded: false, detected: '', override: false, shown: '' });
+  return [base('a', 'cisco', 'C9300X-24Y', 'IOS-XE', '17.12'), base('b', 'aruba', 'CX 6300M', 'AOS-CX', '10.13')];
+}
+
+function applyDeviceCards(list) {
+  while (deviceIds().length < list.length) addDevice(true);
+  while (deviceIds().length > list.length) { const last = deviceIds().filter(i => !['a', 'b'].includes(i)).pop(); if (!last) break; removeDevice(last); }
+  state.configs = {};
+  $$('.device-card').forEach((card, i) => {
+    const d = list[i]; if (!d) return;
+    card.dataset.device = d.id; $('.device-index', card).textContent = d.id.toUpperCase();
+    $('.vendor', card).value = d.vendor; $('.vendor-dot', card).className = 'vendor-dot ' + d.vendor;
+    fillModelSelect($('.model', card), d.vendor, d.model === CUSTOM_MODEL ? undefined : d.model);
+    if (d.model === CUSTOM_MODEL) $('.model', card).value = CUSTOM_MODEL;
+    $('.model-custom', card).value = d.custom || ''; applyModelDefaults(card);
+    $('.os', card).value = d.os; $('.version', card).value = d.version; $('.role', card).value = d.role; $('.ports', card).value = d.ports;
+    if (d.touched) $('.ports', card).dataset.touched = '1'; else delete $('.ports', card).dataset.touched;
+    const cf = $('.config-file', card); if (cf) cf.value = '';
+    state.configs[d.id] = d.config || '';
+    const st = $('.config-status', card); st.textContent = d.status || 'Henüz yüklenmedi'; st.classList.toggle('loaded', Boolean(d.loaded));
+    if (d.detected) card.dataset.detected = d.detected; else delete card.dataset.detected;
+    if (d.shown) card.dataset.shown = d.shown; else delete card.dataset.shown;
+    card.classList.toggle('show-override', Boolean(d.override));
+    renderCaps(card); renderDetectChip(card);
+  });
+}
+
+// Denetimde ikinci kartı gizleyebilmek için kaldır düğmesi
+(function initAuditRemove() {
+  const b = document.querySelector('[data-device="b"]'); if (!b || $('.audit-remove', b)) return;
+  const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'remove-device audit-remove'; btn.setAttribute('aria-label', 'Cihazı kaldır'); btn.textContent = '×';
+  $('.device-title', b).appendChild(btn);
+  btn.addEventListener('click', () => {
+    if (activeDeviceIds().length <= 1) return;
+    const id = b.dataset.device; state.configs[id] = ''; const st = $('.config-status', b); st.textContent = 'Henüz yüklenmedi'; st.classList.remove('loaded');
+    const cf = $('.config-file', b); if (cf) cf.value = ''; delete b.dataset.detected; delete b.dataset.shown; b.classList.remove('show-override'); renderDetectChip(b);
+    b.hidden = true; refreshDeviceActions();
+  });
+})();
+
+// ---------- Nasıl kullanılır ----------
+var HOWTO = {
+  routing: ['Üstten bu modülü seç (Routing & Overlay).', 'Cihazların üreticisini, modelini ve rolünü seç; mevcut config varsa "Dosya seç" ile yükle.', 'Niyet kutusuna ne istediğini düz cümleyle yaz.', '"Planı hazırla"ya bas; delta config, doğrulama, rollback, fark ve risk sekmelerine bak.'],
+  security: ['Secure Access modülünü seç.', 'Erişim switch(ler)ini ve NAC / RADIUS bilgilerini gir.', 'Niyete 802.1X / MAB isteğini yaz.', '"Planı hazırla"ya bas; config ve doğrulama adımlarını incele.'],
+  cabling: ['Fiziksel Plan modülünü seç.', 'Cihazları ve boş uplink portlarını gir.', 'Niyete kablolama / VXLAN isteğini yaz.', '"Planı hazırla"ya bas; port, kablo ve saha emrini al.'],
+  hardening: ['Switch Hardening modülünü seç.', 'Üreticiyi, hostname ve yönetim bilgilerini gir; varsa mevcut config\'i yükle.', 'Niyeti kontrol et.', '"Planı hazırla"ya bas; tam baseline, hardening raporu ve fark gelir.'],
+  campus: ['Campus Builder\'ı seç.', 'Core ve access cihazlarını tek tek ekle (üretici, model, hostname, IP).', 'Niyete VLAN\'ları, 802.1X, OSPF, VSS / vPC / stack gibi isteklerini yaz.', '"Planı hazırla"ya bas; cihaz başına config, port planı ve topoloji gelir. "Lab paketi (ZIP)" ile dışa aktar.'],
+  wan: ['WAN / VPN modülünü seç.', 'Hub ve spoke router\'larını ekle (üretici, model, WAN IP, LAN alt ağı).', 'Niyete DMVPN / IPsec / GRE, çift ISP veya QoS isteğini yaz.', '"Planı hazırla"ya bas; router config, tünel planı ve topoloji gelir.'],
+  audit: ['Config Denetimi modülünü seç.', '"Dosya seç" ile bir cihazın running-config\'ini yükle (üretici ve rol otomatik algılanır). Başka cihaz için "+ Cihaz ekle".', 'Denetim profillerini ve NTP / syslog / RADIUS değerlerini kontrol et.', '"Planı hazırla"ya bas; güvenlik puanı, bulgular ve düzeltme komutları gelir.']
+};
+function renderHowTo(module) {
+  const ol = $("#howtoSteps"); if (!ol || !HOWTO) return;
+  const steps = HOWTO[module] || HOWTO.routing;
+  ol.innerHTML = steps.map(x => '<li>' + escHtml(x) + '</li>').join('');
+}
+
+renderHowTo(state.module);
+
+// ---------- Risk şeridi ve diff görünümü ----------
+function renderRiskBanner() {
+  const p = state.plan; const el = $('#riskBanner'); if (!el || !p || !p.risk) return;
+  const r = p.risk; const lvl = r.level === 'YÜKSEK' ? 'high' : r.level === 'ORTA' ? 'mid' : 'low';
+  el.dataset.level = lvl;
+  $('#riskBadge').textContent = r.level + ' RİSK'; $('#riskBadge').className = 'risk-badge ' + lvl;
+  $('#riskDevices').textContent = String(p.ids.length);
+  $('#riskScore').textContent = r.score + ' / 100';
+  const pre = p.preflight || [];
+  $('#riskPre').textContent = pre.length ? pre.length + ' bulgu' : 'Çakışma yok'; $('#riskPre').className = pre.length ? 'warn' : 'ok';
+  const al = $('#riskAlert'); const top = r.rows.slice().sort((a, b) => b.w - a.w)[0];
+  if (pre.length) { al.hidden = false; al.textContent = 'Ön kontrol: ' + pre[0] + (pre.length > 1 ? ' (+' + (pre.length - 1) + ')' : ''); }
+  else if (top) { al.hidden = false; al.innerHTML = '<b>' + escHtml(top.t) + '</b> ' + escHtml(top.m); }
+  else al.hidden = true;
+}
+$('#diffToggle').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; state.diffView = b.dataset.diffview; renderOutput(); });
+
+// ---------- Üst çubuk: sürüm ve tarih / saat ----------
+(function initMeta() {
+  const v = $('#appVersion'), c = $('#appClock'); if (!v || !c) return;
+  v.textContent = 'v' + (window.NETCUBE_VERSION || '?');
+  const tick = () => {
+    const loc = window.I18N ? window.I18N.locale() : 'tr-TR';
+    try { c.textContent = new Date().toLocaleString(loc, { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }); } catch (e) { c.textContent = new Date().toLocaleString(); }
+  };
+  tick(); setInterval(tick, 1000);
 })();

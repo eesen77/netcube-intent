@@ -1019,3 +1019,63 @@ Object.assign(window.NETCUBE_EN, {
   "{0}: yönetim IP'si ({1}) yönetim alt ağının dışında": "{0}: management IP ({1}) is outside the management subnet",
   "{0}: VLAN {1} erişim portlarında kullanılıyor ama trunk allowed listesinde yok": "{0}: VLAN {1} is used on access ports but is missing from the trunk allowed list"
 });
+Object.assign(window.NETCUBE_EN, {
+  "Nasıl kullanılır?": "How to use",
+  "Cihazı kaldır": "Remove device",
+  "Kendi running-config dosyanı yükle; seçili profillere göre denetlenir ve düzeltme komutları üretilir.": "Upload your own running-config; it is audited against the selected profiles and fix commands are generated.",
+  "Cihazlarını ekle; config, port planı ve topoloji niyetinden üretilir.": "Add your devices; config, port plan and topology are generated from your intent.",
+  "Router envanterini ekle; VPN config, tünel planı ve topoloji niyetinden üretilir.": "Add your router inventory; VPN config, tunnel plan and topology are generated from your intent.",
+  "Üstten bu modülü seç (Routing & Overlay).": "Pick this module at the top (Routing & Overlay).",
+  "Cihazların üreticisini, modelini ve rolünü seç; mevcut config varsa \"Dosya seç\" ile yükle.": "Choose each device's vendor, model and role; if you have an existing config, upload it with \"Choose file\".",
+  "Niyet kutusuna ne istediğini düz cümleyle yaz.": "Write what you want in plain language in the intent box.",
+  "\"Planı hazırla\"ya bas; delta config, doğrulama, rollback, fark ve risk sekmelerine bak.": "Press \"Prepare plan\"; check the delta config, verification, rollback, diff and risk tabs.",
+  "Secure Access modülünü seç.": "Pick the Secure Access module.",
+  "Erişim switch(ler)ini ve NAC / RADIUS bilgilerini gir.": "Enter the access switch(es) and the NAC / RADIUS details.",
+  "Niyete 802.1X / MAB isteğini yaz.": "Write your 802.1X / MAB request in the intent.",
+  "\"Planı hazırla\"ya bas; config ve doğrulama adımlarını incele.": "Press \"Prepare plan\"; review the config and verification steps.",
+  "Fiziksel Plan modülünü seç.": "Pick the Physical Plan module.",
+  "Cihazları ve boş uplink portlarını gir.": "Enter the devices and their free uplink ports.",
+  "Niyete kablolama / VXLAN isteğini yaz.": "Write your cabling / VXLAN request in the intent.",
+  "\"Planı hazırla\"ya bas; port, kablo ve saha emrini al.": "Press \"Prepare plan\"; get the ports, cables and field work order.",
+  "Switch Hardening modülünü seç.": "Pick the Switch Hardening module.",
+  "Üreticiyi, hostname ve yönetim bilgilerini gir; varsa mevcut config'i yükle.": "Enter the vendor, hostname and management details; upload the existing config if you have one.",
+  "Niyeti kontrol et.": "Check the intent.",
+  "\"Planı hazırla\"ya bas; tam baseline, hardening raporu ve fark gelir.": "Press \"Prepare plan\"; you get the full baseline, hardening report and diff.",
+  "Campus Builder'ı seç.": "Pick Campus Builder.",
+  "Core ve access cihazlarını tek tek ekle (üretici, model, hostname, IP).": "Add the core and access devices one by one (vendor, model, hostname, IP).",
+  "Niyete VLAN'ları, 802.1X, OSPF, VSS / vPC / stack gibi isteklerini yaz.": "Write your VLANs, 802.1X, OSPF, VSS / vPC / stack and other requests in the intent.",
+  "\"Planı hazırla\"ya bas; cihaz başına config, port planı ve topoloji gelir. \"Lab paketi (ZIP)\" ile dışa aktar.": "Press \"Prepare plan\"; you get per-device config, port plan and topology. Export with \"Lab bundle (ZIP)\".",
+  "WAN / VPN modülünü seç.": "Pick the WAN / VPN module.",
+  "Hub ve spoke router'larını ekle (üretici, model, WAN IP, LAN alt ağı).": "Add the hub and spoke routers (vendor, model, WAN IP, LAN subnet).",
+  "Niyete DMVPN / IPsec / GRE, çift ISP veya QoS isteğini yaz.": "Write your DMVPN / IPsec / GRE, dual-ISP or QoS request in the intent.",
+  "\"Planı hazırla\"ya bas; router config, tünel planı ve topoloji gelir.": "Press \"Prepare plan\"; you get the router config, tunnel plan and topology.",
+  "Config Denetimi modülünü seç.": "Pick the Config Audit module.",
+  "\"Dosya seç\" ile bir cihazın running-config'ini yükle (üretici ve rol otomatik algılanır). Başka cihaz için \"+ Cihaz ekle\".": "Upload a device's running-config with \"Choose file\" (vendor and role are detected automatically). Use \"+ Add device\" for another device.",
+  "Denetim profillerini ve NTP / syslog / RADIUS değerlerini kontrol et.": "Check the audit profiles and the NTP / syslog / RADIUS values.",
+  "\"Planı hazırla\"ya bas; güvenlik puanı, bulgular ve düzeltme komutları gelir.": "Press \"Prepare plan\"; you get the security score, findings and fix commands."
+});
+Object.assign(window.NETCUBE_EN, {
+  "Değişiklik etki ve risk analizi": "Change impact and risk analysis",
+  "Üretilen komutlara göre sezgisel değerlendirme": "Heuristic assessment based on the generated commands",
+  "Etkilenen cihaz": "Affected devices",
+  "Risk puanı (tahmini)": "Risk score (estimated)",
+  "Ön kontrol": "Pre-flight check",
+  "Çakışma yok": "No conflicts",
+  "{0} bulgu": "{0} findings",
+  "{0} RİSK": "{0} RISK",
+  "Yan yana": "Side by side",
+  "Birleşik": "Unified",
+  "Hedef config": "Target config",
+  "değişmeyen satır": "unchanged lines"
+});
+Object.assign(window.NETCUBE_EN, {
+  "3 core ve 6 access için VLAN 10 USERS ve VLAN 99 MANAGEMENT olsun. Core'lar VSS olsun, access switchler 2'li stack olsun. 802.1X ve DHCP sunucusu kullan.": "3 cores and 6 access switches with VLAN 10 USERS and VLAN 99 MANAGEMENT. Make the cores VSS and the access switches 2-member stacks. Use 802.1X and a DHCP server.",
+  "2 core ve 8 access için HSRP yerine VRRP kullan; OSPF çalıştır ve varsayılan rota 172.16.0.1 üzerinden gitsin.": "For 2 cores and 8 access switches use VRRP instead of HSRP; run OSPF and send the default route via 172.16.0.1.",
+  "Merkez ve 3 şube için DMVPN Phase 3, EIGRP. Çift ISP yedekli hat ve QoS (VoIP) olsun.": "DMVPN Phase 3 with EIGRP for a hub and 3 branches. Add dual-ISP failover and QoS (VoIP).",
+  "Merkez ve 2 şube için site-to-site IPsec ve statik rota kur.": "Set up site-to-site IPsec and static routes for a hub and 2 branches."
+});
+Object.assign(window.NETCUBE_EN, {
+  "LAN alt ağları niyetten alındı: {0}.": "LAN subnets were taken from the intent: {0}.",
+  "Niyette VPN türü (DMVPN / IPsec / GRE) yok; {0} varsayıldı. Yalnız routing veya VXLAN istiyorsan Routing & Overlay modülünü seç.": "The intent does not name a VPN type (DMVPN / IPsec / GRE); {0} was assumed. If you only want routing or VXLAN, pick the Routing & Overlay module.",
+  "Varsayılan {0} {1} tarafından desteklenmiyor; {2} önerildi.": "The default {0} is not supported by {1}; {2} was suggested."
+});
